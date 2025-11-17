@@ -27,6 +27,10 @@ interface IEnvAPI {
   showOpenDialog: (filters: any[]) => Promise<string | null>
   getSystemEnv: () => Promise<EnvVariable[]>
   importSystemEnv: () => Promise<EnvProfile>
+  getEnvConfigFiles: () => Promise<{ name: string; path: string; description: string }[]>
+  readEnvConfigFile: (filePath: string) => Promise<string | null>
+  writeEnvConfigFile: (filePath: string, content: string) => Promise<boolean>
+  parseEnvFromConfig: (content: string) => Promise<EnvVariable[]>
 }
 
 declare global {

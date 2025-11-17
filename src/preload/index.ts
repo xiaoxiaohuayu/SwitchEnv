@@ -11,7 +11,12 @@ const api = {
   showSaveDialog: (defaultPath) => ipcRenderer.invoke('show-save-dialog', defaultPath),
   showOpenDialog: (filters) => ipcRenderer.invoke('show-open-dialog', filters),
   getSystemEnv: () => ipcRenderer.invoke('get-system-env'),
-  importSystemEnv: () => ipcRenderer.invoke('import-system-env')
+  importSystemEnv: () => ipcRenderer.invoke('import-system-env'),
+  // 环境配置文件相关
+  getEnvConfigFiles: () => ipcRenderer.invoke('get-env-config-files'),
+  readEnvConfigFile: (filePath) => ipcRenderer.invoke('read-env-config-file', filePath),
+  writeEnvConfigFile: (filePath, content) => ipcRenderer.invoke('write-env-config-file', filePath, content),
+  parseEnvFromConfig: (content) => ipcRenderer.invoke('parse-env-from-config', content)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -72,4 +72,10 @@ export interface IEnvAPI {
   // 系统环境变量
   getSystemEnv: () => Promise<EnvVariable[]>
   importSystemEnv: () => Promise<EnvProfile>
+  
+  // 环境配置文件
+  getEnvConfigFiles: () => Promise<{ name: string; path: string; description: string }[]>
+  readEnvConfigFile: (filePath: string) => Promise<string | null>
+  writeEnvConfigFile: (filePath: string, content: string) => Promise<boolean>
+  parseEnvFromConfig: (content: string) => Promise<EnvVariable[]>
 }

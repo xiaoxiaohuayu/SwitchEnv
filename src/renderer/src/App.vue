@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor } from '@element-plus/icons-vue'
+import { Monitor, Edit } from '@element-plus/icons-vue'
 import { useEnvStore } from './stores/env'
 import ProfileList from './components/ProfileList.vue'
 import VariableEditor from './components/VariableEditor.vue'
@@ -10,6 +10,7 @@ import TemplateDialog from './components/TemplateDialog.vue'
 import SystemEnvDialog from './components/SystemEnvDialog.vue'
 import TagManager from './components/TagManager.vue'
 import ValidationPanel from './components/ValidationPanel.vue'
+import EnvFileEditor from './components/EnvFileEditor.vue'
 import type { EnvVariable, Template, Tag } from './types'
 
 const envStore = useEnvStore()
@@ -19,6 +20,7 @@ const showTemplateDialog = ref(false)
 const showSystemEnvDialog = ref(false)
 const showTagManager = ref(false)
 const showValidationPanel = ref(false)
+const showEnvFileEditor = ref(false)
 const editingProfile = ref<any>(null)
 const systemEnvVariables = ref<EnvVariable[]>([])
 const validationPanelRef = ref<InstanceType<typeof ValidationPanel> | null>(null)
@@ -67,6 +69,24 @@ const loadSystemEnvVariables = async () => {
 // 显示系统环境变量
 const handleShowSystemEnv = () => {
   showSystemEnvDialog.value = true
+}
+
+// 显示环境配置文件编辑器
+const handleShowEnvFileEditor = () => {
+  showEnvFileEditor.value = true
+}
+
+// 从配置文件导入环境变量
+const handleImportFromConfigFile = async (variables: EnvVariable[]) => {
+  if (!envStore.currentProfileId) {
+    ElMessage.warning('请先选择一个配置')
+    return
+  }
+  
+  for (const variable of variables) {
+    await envStore.addVariable(envStore.currentProfileId, { ...variable })
+  }
+  ElMessage.success(`已导入 ${variables.length} 个环境变量`)
 }
 
 // 配置管理
@@ -314,6 +334,10 @@ const handleExport = async () => {
           <el-icon><Monitor /></el-icon>
           系统环境变量 ({{ systemEnvVariables.length }})
         </el-button>
+        <el-button type="warning" @click="handleShowEnvFileEditor">
+          <el-icon><Edit /></el-icon>
+          配置文件编辑器
+        </el-button>
       </div>
     </div>
     
@@ -369,6 +393,12 @@ const handleExport = async () => {
       :variables="systemEnvVariables"
       @import-all="handleImportAllSystemEnv"
       @import-single="handleImportSingleSystemEnv"
+    />
+    
+    <!-- 环境配置文件编辑器 -->
+    <EnvFileEditor
+      v-model:visible="showEnvFileEditor"
+      @import-variables="handleImportFromConfigFile"
     />
     
     <!-- 标签管理器 -->

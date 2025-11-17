@@ -114,6 +114,23 @@ app.whenReady().then(() => {
     return envManager.importSystemEnvVariables()
   })
 
+  // 环境配置文件相关
+  ipcMain.handle('get-env-config-files', async () => {
+    return envManager.getEnvConfigFiles()
+  })
+
+  ipcMain.handle('read-env-config-file', async (_, filePath) => {
+    return envManager.readEnvConfigFile(filePath)
+  })
+
+  ipcMain.handle('write-env-config-file', async (_, filePath, content) => {
+    return envManager.writeEnvConfigFile(filePath, content)
+  })
+
+  ipcMain.handle('parse-env-from-config', async (_, content) => {
+    return envManager.parseEnvFromConfigFile(content)
+  })
+
   createWindow()
 
   app.on('activate', function () {
