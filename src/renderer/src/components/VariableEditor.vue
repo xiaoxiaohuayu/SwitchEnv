@@ -126,12 +126,12 @@ const handleVariableChange = (index: number, variable: EnvVariable) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--el-bg-color);
+  background: var(--app-card-bg);
 }
 
 .editor-header {
   padding: 20px;
-  border-bottom: 1px solid var(--el-border-color);
+  border-bottom: 1px solid var(--app-border-color);
 }
 
 .editor-header h2 {
@@ -166,12 +166,14 @@ const handleVariableChange = (index: number, variable: EnvVariable) => {
   padding: 16px;
   display: flex;
   gap: 8px;
-  border-bottom: 1px solid var(--el-border-color);
+  border-bottom: 1px solid var(--app-border-color);
+  background: var(--color-background-mute);
 }
 
 .variables-list {
   flex: 1;
   padding: 16px;
+  background: var(--color-background-soft);
 }
 
 .empty-variables {
@@ -181,5 +183,6 @@ const handleVariableChange = (index: number, variable: EnvVariable) => {
 
 :deep(.el-table) {
   background: transparent;
+  color: var(--color-text);
 }
 </style>

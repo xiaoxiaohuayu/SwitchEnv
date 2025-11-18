@@ -11,6 +11,9 @@ const api = {
   showOpenDialog: (filters) => electron.ipcRenderer.invoke("show-open-dialog", filters),
   getSystemEnv: () => electron.ipcRenderer.invoke("get-system-env"),
   importSystemEnv: () => electron.ipcRenderer.invoke("import-system-env"),
+  getEnvFilePath: () => electron.ipcRenderer.invoke("get-env-file-path"),
+  applyProfileToFile: (filePath, profile) => electron.ipcRenderer.invoke("apply-profile-to-file", filePath, profile),
+  updateTrayState: (state) => electron.ipcRenderer.invoke("update-tray-state", state),
   // 环境配置文件相关
   getEnvConfigFiles: () => electron.ipcRenderer.invoke("get-env-config-files"),
   readEnvConfigFile: (filePath) => electron.ipcRenderer.invoke("read-env-config-file", filePath),

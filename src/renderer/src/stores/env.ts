@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { EnvProfile, EnvVariable, Tag } from '../types'
+import type { EnvProfile, EnvVariable, Tag, Template } from '../types'
 
 export const useEnvStore = defineStore('env', () => {
   // 状态
@@ -10,6 +10,9 @@ export const useEnvStore = defineStore('env', () => {
   const tags = ref<Tag[]>([])  // 标签列表
   const selectedTags = ref<string[]>([])  // 选中的标签筛选
   const selectedGroup = ref<string | null>(null)  // 选中的分组
+  const searchKeyword = ref('')
+  const customTemplates = ref<Template[]>([])  // 用户自定义模板
+  const recentTemplateIds = ref<string[]>([])  // 最近使用的模板 ID
 
   // 计算属性
   const currentProfile = computed(() => 
@@ -36,7 +39,18 @@ export const useEnvStore = defineStore('env', () => {
       )
     }
 
-    return filtered
+    let result = filtered
+
+    if (searchKeyword.value.trim()) {
+      const keyword = searchKeyword.value.trim().toLowerCase()
+      result = result.filter(p => {
+        const nameMatch = p.name.toLowerCase().includes(keyword)
+        const descMatch = p.description ? p.description.toLowerCase().includes(keyword) : false
+        return nameMatch || descMatch
+      })
+    }
+
+    return result
   })
 
   // 所有分组列表
@@ -221,15 +235,84 @@ export const useEnvStore = defineStore('env', () => {
   }
 
   const saveTags = () => {
-    // 保存标签到 localStorage
-    localStorage.setItem('env-tags', JSON.stringify(tags.value))
+    try {
+      localStorage.setItem('env-tags', JSON.stringify(tags.value))
+    } catch (error) {
+      console.error('Failed to save tags:', error)
+    }
   }
 
   const loadTags = () => {
     const saved = localStorage.getItem('env-tags')
     if (saved) {
-      tags.value = JSON.parse(saved)
+      try {
+        tags.value = JSON.parse(saved)
+      } catch (error) {
+        console.error('Failed to parse tags:', error)
+      }
     }
+  }
+
+  // 自定义模板
+  const saveCustomTemplates = () => {
+    localStorage.setItem('env-custom-templates', JSON.stringify(customTemplates.value))
+  }
+
+  const loadCustomTemplates = () => {
+    const saved = localStorage.getItem('env-custom-templates')
+    if (saved) {
+      try {
+        customTemplates.value = JSON.parse(saved)
+      } catch (error) {
+        console.error('Failed to parse custom templates:', error)
+      }
+    }
+  }
+
+  const addCustomTemplate = (payload: {
+    name: string
+    description?: string
+    category?: Template['category']
+    variables: EnvVariable[]
+  }) => {
+    const newTemplate: Template = {
+      id: `custom-${Date.now()}`,
+      name: payload.name,
+      description: payload.description || '',
+      category: payload.category || 'custom',
+      variables: payload.variables,
+      source: 'custom'
+    }
+    customTemplates.value.push(newTemplate)
+    saveCustomTemplates()
+    return newTemplate
+  }
+
+  const deleteCustomTemplate = (templateId: string) => {
+    customTemplates.value = customTemplates.value.filter(t => t.id !== templateId)
+    saveCustomTemplates()
+  }
+
+  const loadRecentTemplates = () => {
+    const saved = localStorage.getItem('env-recent-templates')
+    if (saved) {
+      try {
+        recentTemplateIds.value = JSON.parse(saved)
+      } catch (error) {
+        console.error('Failed to parse recent templates:', error)
+      }
+    }
+  }
+
+  const saveRecentTemplates = () => {
+    localStorage.setItem('env-recent-templates', JSON.stringify(recentTemplateIds.value))
+  }
+
+  const recordTemplateUsage = (templateId: string) => {
+    const next = recentTemplateIds.value.filter(id => id !== templateId)
+    next.unshift(templateId)
+    recentTemplateIds.value = next.slice(0, 8)
+    saveRecentTemplates()
   }
 
   // 为配置添加/移除标签
@@ -268,8 +351,11 @@ export const useEnvStore = defineStore('env', () => {
     activeProfile,
     filteredProfiles,
     tags,
+    customTemplates,
+    recentTemplateIds,
     selectedTags,
     selectedGroup,
+    searchKeyword,
     allGroups,
     loading,
     loadProfiles,
@@ -287,8 +373,13 @@ export const useEnvStore = defineStore('env', () => {
     updateTag,
     deleteTag,
     loadTags,
+    loadCustomTemplates,
+    loadRecentTemplates,
     addTagToProfile,
     removeTagFromProfile,
-    setProfileGroup
+    setProfileGroup,
+    addCustomTemplate,
+    deleteCustomTemplate,
+    recordTemplateUsage
   }
 })

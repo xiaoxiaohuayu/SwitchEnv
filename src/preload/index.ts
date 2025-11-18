@@ -12,6 +12,9 @@ const api = {
   showOpenDialog: (filters) => ipcRenderer.invoke('show-open-dialog', filters),
   getSystemEnv: () => ipcRenderer.invoke('get-system-env'),
   importSystemEnv: () => ipcRenderer.invoke('import-system-env'),
+  getEnvFilePath: () => ipcRenderer.invoke('get-env-file-path'),
+  applyProfileToFile: (filePath, profile) => ipcRenderer.invoke('apply-profile-to-file', filePath, profile),
+  updateTrayState: (state) => ipcRenderer.invoke('update-tray-state', state),
   // 环境配置文件相关
   getEnvConfigFiles: () => ipcRenderer.invoke('get-env-config-files'),
   readEnvConfigFile: (filePath) => ipcRenderer.invoke('read-env-config-file', filePath),

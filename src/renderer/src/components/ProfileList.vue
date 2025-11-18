@@ -16,6 +16,18 @@
     
     <!-- 筛选区域 -->
     <div class="filter-section">
+      <el-input
+        v-model="localSearch"
+        placeholder="搜索配置名称或描述"
+        clearable
+        size="small"
+        style="width: 100%; margin-bottom: 8px"
+      >
+        <template #prefix>
+          <el-icon><Search /></el-icon>
+        </template>
+      </el-input>
+
       <el-select
         v-model="selectedGroup"
         placeholder="所有分组"
@@ -133,8 +145,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Plus, Check, PriceTag, FolderOpened } from '@element-plus/icons-vue'
+import { ref, watch } from 'vue'
+import { Plus, Check, PriceTag, FolderOpened, Search } from '@element-plus/icons-vue'
 import type { EnvProfile, Tag } from '../types'
 
 const props = defineProps<{
@@ -142,6 +154,7 @@ const props = defineProps<{
   selectedId: string | null
   tags: Tag[]
   groups: string[]
+  searchKeyword: string
 }>()
 
 const emit = defineEmits<{
@@ -156,10 +169,22 @@ const emit = defineEmits<{
   'add-tag-to-profile': [profileId: string, tagId: string]
   'remove-tag-from-profile': [profileId: string, tagId: string]
   'set-group': [profileId: string, group: string | null]
+  'update:search-keyword': [value: string]
 }>()
 
 const selectedGroup = ref<string | null>(null)
 const selectedTagsLocal = ref<string[]>([])
+const localSearch = ref(props.searchKeyword || '')
+
+watch(() => props.searchKeyword, (val) => {
+  if (val !== localSearch.value) {
+    localSearch.value = val
+  }
+})
+
+watch(localSearch, (val) => {
+  emit('update:search-keyword', val)
+})
 
 // 获取标签名称
 const getTagName = (tagId: string): string => {
@@ -190,8 +215,8 @@ const formatDate = (timestamp: number) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  border-right: 1px solid var(--el-border-color);
-  background: var(--el-bg-color);
+  border-right: 1px solid var(--app-border-color);
+  background: var(--app-card-bg);
 }
 
 .list-header {
@@ -199,7 +224,7 @@ const formatDate = (timestamp: number) => {
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  border-bottom: 1px solid var(--el-border-color);
+  border-bottom: 1px solid var(--app-border-color);
 }
 
 .list-header h3 {
@@ -222,7 +247,7 @@ const formatDate = (timestamp: number) => {
   padding: 12px;
   margin-bottom: 8px;
   border-radius: 8px;
-  border: 1px solid var(--el-border-color);
+  border: 1px solid var(--app-border-color);
   cursor: pointer;
   transition: all 0.3s;
 }
@@ -289,8 +314,8 @@ const formatDate = (timestamp: number) => {
 
 .filter-section {
   padding: 8px 16px;
-  border-bottom: 1px solid var(--el-border-color);
-  background: var(--el-fill-color-lighter);
+  border-bottom: 1px solid var(--app-border-color);
+  background: var(--color-background-mute);
 }
 
 .profile-tags {

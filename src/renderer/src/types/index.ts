@@ -43,10 +43,29 @@ export interface EnvProfile {
 }
 
 // 快捷模板接口
+export type TemplateCategory =
+  | 'frontend'
+  | 'backend'
+  | 'database'
+  | 'infrastructure'
+  | 'ai'
+  | 'custom'
+
+export interface TemplatePlaceholder {
+  name: string
+  label: string
+  description?: string
+  defaultValue?: string
+}
+
 export interface Template {
+  id: string
   name: string
   description: string
+  category: TemplateCategory
   variables: EnvVariable[]
+  placeholders?: TemplatePlaceholder[]
+  source?: 'builtin' | 'custom'
 }
 
 // 导入导出格式类型
@@ -72,6 +91,12 @@ export interface IEnvAPI {
   // 系统环境变量
   getSystemEnv: () => Promise<EnvVariable[]>
   importSystemEnv: () => Promise<EnvProfile>
+  getEnvFilePath: () => Promise<string>
+  applyProfileToFile: (filePath: string, profile: EnvProfile) => Promise<boolean>
+  updateTrayState: (state: {
+    activeProfile: { id: string; name: string } | null
+    recentProfiles: { id: string; name: string }[]
+  }) => Promise<void>
   
   // 环境配置文件
   getEnvConfigFiles: () => Promise<{ name: string; path: string; description: string }[]>

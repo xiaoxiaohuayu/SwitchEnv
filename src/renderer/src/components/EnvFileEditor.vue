@@ -41,6 +41,15 @@
             <el-icon><Download /></el-icon>
             导入环境变量到配置
           </el-button>
+          <el-button
+            type="danger"
+            plain
+            :disabled="!props.profile || !selectedFile"
+            @click="handleApplyProfileToFile"
+          >
+            <el-icon><Upload /></el-icon>
+            将当前配置写入文件
+          </el-button>
         </div>
       </div>
 
@@ -124,12 +133,14 @@ import {
   Document,
   Refresh,
   DocumentChecked,
-  Download
+  Download,
+  Upload
 } from '@element-plus/icons-vue'
-import type { EnvVariable } from '../types'
+import type { EnvProfile, EnvVariable } from '../types'
 
 const props = defineProps<{
   visible: boolean
+  profile: EnvProfile | null
 }>()
 
 const emit = defineEmits<{
@@ -232,8 +243,40 @@ const handleLoad = async (): Promise<void> => {
 
 // 处理内容变化
 const handleContentChange = async (): Promise<void> => {
-  // 实时解析环境变量
   await parseVariables()
+}
+
+const handleApplyProfileToFile = async (): Promise<void> => {
+  if (!props.profile || !selectedFile.value) {
+    ElMessage.warning('请选择配置和目标文件')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `将把「${props.profile.name}」中的变量写入 ${selectedFile.value}，原文件会自动备份。继续吗？`,
+      '应用到系统配置文件',
+      {
+        confirmButtonText: '应用',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const success = await window.api.applyProfileToFile(selectedFile.value, props.profile)
+    if (success) {
+      ElMessage.success('已写入配置文件（已备份原文件）')
+    } else {
+      ElMessage.error('写入失败')
+    }
+  } catch (error) {
+    console.error('Failed to apply profile to file:', error)
+    ElMessage.error('写入失败')
+  }
 }
 
 // 解析环境变量

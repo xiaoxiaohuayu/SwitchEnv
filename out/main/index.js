@@ -210,7 +210,11 @@ class EnvManager {
         { name: ".bash_profile", path: path__namespace.join(homeDir, ".bash_profile"), description: "Bash Profile" },
         { name: ".zshrc", path: path__namespace.join(homeDir, ".zshrc"), description: "Zsh 配置文件" },
         { name: ".profile", path: path__namespace.join(homeDir, ".profile"), description: "Shell Profile" },
-        { name: ".zprofile", path: path__namespace.join(homeDir, ".zprofile"), description: "Zsh Profile" }
+        { name: ".zprofile", path: path__namespace.join(homeDir, ".zprofile"), description: "Zsh Profile" },
+        { name: "/etc/profile", path: "/etc/profile", description: "系统级 Shell Profile" },
+        { name: "/etc/zshrc", path: "/etc/zshrc", description: "系统级 Zsh 配置" },
+        { name: "/etc/bashrc", path: "/etc/bashrc", description: "系统级 Bash 配置" },
+        { name: "/etc/environment", path: "/etc/environment", description: "系统环境变量文件 (部分发行版)" }
       ];
       possibleFiles.forEach((file) => {
         if (fs__namespace.existsSync(file.path)) {
@@ -218,10 +222,17 @@ class EnvManager {
         }
       });
     } else if (platform === "win32") {
+      const userProfile = process.env.USERPROFILE || homeDir;
+      const psProfile = path__namespace.join(userProfile, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1");
       files.push({
-        name: "系统环境变量",
-        path: "HKEY_CURRENT_USER\\Environment",
-        description: "Windows 用户环境变量（注册表）"
+        name: "PowerShell Profile",
+        path: psProfile,
+        description: "PowerShell 用户配置文件"
+      });
+      files.push({
+        name: ".bashrc (Git Bash)",
+        path: path__namespace.join(userProfile, ".bashrc"),
+        description: "Git Bash 配置（若已安装）"
       });
     }
     return files;
@@ -254,6 +265,33 @@ class EnvManager {
       return false;
     }
   }
+  // 将配置应用到指定的系统配置文件（追加 SwitchEnv 块）
+  applyProfileToFile(filePath, profile) {
+    try {
+      const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+      const header = `
+# ----- SwitchEnv (${timestamp}) -----
+`;
+      const footer = "# ----- End SwitchEnv -----\n";
+      const lines = profile.variables.map((v) => {
+        const safeValue = (v.value ?? "").replace(/"/g, '\\"');
+        return `export ${v.key}="${safeValue}"`;
+      });
+      const block = `${header}${lines.join("\n")}
+${footer}`;
+      if (fs__namespace.existsSync(filePath)) {
+        const backupPath = `${filePath}.backup.${Date.now()}`;
+        fs__namespace.copyFileSync(filePath, backupPath);
+        console.log("[EnvManager] 已备份原文件到:", backupPath);
+      }
+      fs__namespace.appendFileSync(filePath, block, "utf-8");
+      console.log("[EnvManager] 已将配置写入:", filePath);
+      return true;
+    } catch (error) {
+      console.error("Failed to apply profile to file:", error);
+      return false;
+    }
+  }
   // 从配置文件中提取环境变量
   parseEnvFromConfigFile(content) {
     const variables = [];
@@ -277,8 +315,111 @@ class EnvManager {
     return variables;
   }
 }
+let mainWindow = null;
+let tray = null;
+let trayState = {
+  activeProfile: null,
+  recentProfiles: []
+};
+const handleProfileSwitchRequest = (profileId) => {
+  if (!profileId || !mainWindow) return;
+  mainWindow.webContents.send("switch-profile", profileId);
+  mainWindow.show();
+};
+const buildTrayMenu = () => {
+  if (!tray) return;
+  const menuTemplate = [
+    {
+      label: trayState.activeProfile ? `当前：${trayState.activeProfile.name}` : "当前：未激活",
+      enabled: false
+    },
+    { type: "separator" }
+  ];
+  if (trayState.recentProfiles.length === 0) {
+    menuTemplate.push({ label: "暂无可用配置", enabled: false });
+  } else {
+    trayState.recentProfiles.forEach((profile) => {
+      menuTemplate.push({
+        label: profile.name,
+        click: () => handleProfileSwitchRequest(profile.id)
+      });
+    });
+  }
+  menuTemplate.push(
+    { type: "separator" },
+    {
+      label: "显示应用窗口",
+      click: () => mainWindow?.show()
+    },
+    {
+      label: "退出 SwitchEnv",
+      click: () => electron.app.quit()
+    }
+  );
+  tray.setContextMenu(electron.Menu.buildFromTemplate(menuTemplate));
+};
+const buildAppMenu = () => {
+  const quickSwitchItems = [
+    {
+      label: trayState.activeProfile ? `当前：${trayState.activeProfile.name}` : "当前：未激活",
+      enabled: false
+    },
+    { type: "separator" }
+  ];
+  if (trayState.recentProfiles.length === 0) {
+    quickSwitchItems.push({ label: "暂无可切换配置", enabled: false });
+  } else {
+    trayState.recentProfiles.forEach((profile, index) => {
+      quickSwitchItems.push({
+        label: `${index + 1}. ${profile.name}`,
+        accelerator: `CommandOrControl+Alt+${index + 1}`,
+        click: () => handleProfileSwitchRequest(profile.id)
+      });
+    });
+  }
+  const template = [
+    {
+      label: "SwitchEnv",
+      submenu: [
+        ...quickSwitchItems,
+        { type: "separator" },
+        {
+          label: "显示窗口",
+          accelerator: "CommandOrControl+Shift+S",
+          click: () => mainWindow?.show()
+        },
+        { role: "quit" }
+      ]
+    },
+    { role: "editMenu" },
+    { role: "viewMenu" }
+  ];
+  electron.Menu.setApplicationMenu(electron.Menu.buildFromTemplate(template));
+};
+const registerProfileShortcuts = () => {
+  electron.globalShortcut.unregisterAll();
+  trayState.recentProfiles.slice(0, 5).forEach((profile, index) => {
+    const accelerator = `CommandOrControl+Alt+${index + 1}`;
+    try {
+      electron.globalShortcut.register(accelerator, () => handleProfileSwitchRequest(profile.id));
+    } catch (error) {
+      console.warn("Failed to register shortcut", accelerator, error);
+    }
+  });
+};
+const createTray = () => {
+  if (tray) return;
+  const trayIcon = electron.nativeImage.createFromPath(icon).resize({ width: 16, height: 16 });
+  trayIcon.setTemplateImage(true);
+  tray = new electron.Tray(trayIcon);
+  tray.setToolTip("SwitchEnv");
+  tray.on("click", () => {
+    mainWindow?.show();
+  });
+  buildTrayMenu();
+};
 function createWindow() {
-  const mainWindow = new electron.BrowserWindow({
+  mainWindow = new electron.BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -290,11 +431,14 @@ function createWindow() {
     }
   });
   mainWindow.on("ready-to-show", () => {
-    mainWindow.show();
+    mainWindow?.show();
   });
   mainWindow.webContents.setWindowOpenHandler((details) => {
     electron.shell.openExternal(details.url);
     return { action: "deny" };
+  });
+  mainWindow.on("closed", () => {
+    mainWindow = null;
   });
   if (utils.is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
@@ -308,7 +452,13 @@ electron.app.whenReady().then(() => {
     utils.optimizer.watchWindowShortcuts(window);
   });
   electron.ipcMain.on("ping", () => console.log("pong"));
+  electron.app.on("will-quit", () => {
+    electron.globalShortcut.unregisterAll();
+  });
   const envManager = new EnvManager();
+  createTray();
+  buildAppMenu();
+  registerProfileShortcuts();
   electron.ipcMain.handle("load-profiles", async () => {
     return envManager.loadProfiles();
   });
@@ -351,6 +501,18 @@ electron.app.whenReady().then(() => {
   });
   electron.ipcMain.handle("import-system-env", async () => {
     return envManager.importSystemEnvVariables();
+  });
+  electron.ipcMain.handle("get-env-file-path", async () => {
+    return envManager.getEnvFilePath();
+  });
+  electron.ipcMain.handle("apply-profile-to-file", async (_, filePath, profile) => {
+    return envManager.applyProfileToFile(filePath, profile);
+  });
+  electron.ipcMain.handle("update-tray-state", async (_, state) => {
+    trayState = state || { activeProfile: null, recentProfiles: [] };
+    buildTrayMenu();
+    buildAppMenu();
+    registerProfileShortcuts();
   });
   electron.ipcMain.handle("get-env-config-files", async () => {
     return envManager.getEnvConfigFiles();

@@ -27,6 +27,9 @@ interface IEnvAPI {
   showOpenDialog: (filters: any[]) => Promise<string | null>
   getSystemEnv: () => Promise<EnvVariable[]>
   importSystemEnv: () => Promise<EnvProfile>
+  getEnvFilePath: () => Promise<string>
+  applyProfileToFile: (filePath: string, profile: EnvProfile) => Promise<boolean>
+  updateTrayState: (state: { activeProfile: { id: string; name: string } | null; recentProfiles: { id: string; name: string }[] }) => Promise<void>
   getEnvConfigFiles: () => Promise<{ name: string; path: string; description: string }[]>
   readEnvConfigFile: (filePath: string) => Promise<string | null>
   writeEnvConfigFile: (filePath: string, content: string) => Promise<boolean>

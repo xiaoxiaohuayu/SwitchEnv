@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, Edit } from '@element-plus/icons-vue'
 import { useEnvStore } from './stores/env'
 import ProfileList from './components/ProfileList.vue'
 import VariableEditor from './components/VariableEditor.vue'
@@ -11,6 +10,8 @@ import SystemEnvDialog from './components/SystemEnvDialog.vue'
 import TagManager from './components/TagManager.vue'
 import ValidationPanel from './components/ValidationPanel.vue'
 import EnvFileEditor from './components/EnvFileEditor.vue'
+import AppHeader from './components/layout/AppHeader.vue'
+import AppShell from './components/layout/AppShell.vue'
 import type { EnvVariable, Template, Tag } from './types'
 
 const envStore = useEnvStore()
@@ -24,15 +25,55 @@ const showEnvFileEditor = ref(false)
 const editingProfile = ref<any>(null)
 const systemEnvVariables = ref<EnvVariable[]>([])
 const validationPanelRef = ref<InstanceType<typeof ValidationPanel> | null>(null)
+const envFilePath = ref('')
+const lastDiff = ref<{ added: EnvVariable[]; removed: EnvVariable[]; changed: { key: string; oldValue: string; newValue: string }[] } | null>(null)
 
 const currentProfile = computed(() => envStore.currentProfile)
+
+const updateTrayState = async () => {
+  if (!window.api?.updateTrayState) return
+  const recentProfiles = envStore.profiles
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 5)
+    .map(profile => ({
+      id: profile.id,
+      name: profile.name
+    }))
+  const active = envStore.activeProfile
+    ? { id: envStore.activeProfile.id, name: envStore.activeProfile.name }
+    : null
+  try {
+    await window.api.updateTrayState({
+      activeProfile: active,
+      recentProfiles
+    })
+  } catch (error) {
+    console.error('Failed to update tray state:', error)
+  }
+}
+
+const handleExternalSwitch = (_event: any, profileId: string) => {
+  if (profileId) {
+    handleActivateProfile(profileId)
+  }
+}
 
 onMounted(async () => {
   await envStore.loadProfiles()
   envStore.loadTags()  // 加载标签
+  envStore.loadCustomTemplates()
+  envStore.loadRecentTemplates()
   
   // 启动时扫描系统环境变量
   await loadSystemEnvVariables()
+
+  // 获取写入目标位置
+  try {
+    envFilePath.value = await window.api.getEnvFilePath()
+  } catch (error) {
+    console.error('读取环境文件路径失败', error)
+  }
   
   // 如果没有任何配置，提示用户导入系统环境变量
   if (envStore.profiles.length === 0) {
@@ -52,6 +93,15 @@ onMounted(async () => {
       })
     }, 1000)
   }
+
+  updateTrayState()
+  window.electron?.ipcRenderer?.on('switch-profile', handleExternalSwitch)
+})
+
+onBeforeUnmount(() => {
+  window.electron?.ipcRenderer?.removeListener('switch-profile', handleExternalSwitch)
+  stopProfilesWatcher()
+  stopActiveWatcher()
 })
 
 // 加载系统环境变量
@@ -83,10 +133,9 @@ const handleImportFromConfigFile = async (variables: EnvVariable[]) => {
     return
   }
   
-  for (const variable of variables) {
-    await envStore.addVariable(envStore.currentProfileId, { ...variable })
-  }
-  ElMessage.success(`已导入 ${variables.length} 个环境变量`)
+  const result = await mergeVariables(variables)
+  if (!result) return
+  ElMessage.success(`已导入 ${result.added + result.updated} 个环境变量（新增 ${result.added}，更新 ${result.updated}）`)
 }
 
 // 配置管理
@@ -118,10 +167,91 @@ const handleSelectProfile = (id: string) => {
   envStore.currentProfileId = id
 }
 
+const diffVariables = (oldVars: EnvVariable[], newVars: EnvVariable[]) => {
+  const oldMap = new Map(oldVars.map(v => [v.key, v]))
+  const newMap = new Map(newVars.map(v => [v.key, v]))
+
+  const added: EnvVariable[] = []
+  const removed: EnvVariable[] = []
+  const changed: { key: string; oldValue: string; newValue: string }[] = []
+
+  newMap.forEach((val, key) => {
+    if (!oldMap.has(key)) {
+      added.push(val)
+    } else if (oldMap.get(key)?.value !== val.value) {
+      changed.push({ key, oldValue: oldMap.get(key)?.value || '', newValue: val.value })
+    }
+  })
+
+  oldMap.forEach((val, key) => {
+    if (!newMap.has(key)) {
+      removed.push(val)
+    }
+  })
+
+  return { added, removed, changed }
+}
+
+const summarizeDiffLines = (diff: {
+  added: EnvVariable[]
+  removed: EnvVariable[]
+  changed: { key: string; oldValue: string; newValue: string }[]
+}) => {
+  const lines: string[] = []
+  diff.added.slice(0, 5).forEach(v => lines.push(`+ ${v.key}`))
+  diff.changed.slice(0, 5).forEach(v => lines.push(`~ ${v.key}`))
+  diff.removed.slice(0, 5).forEach(v => lines.push(`- ${v.key}`))
+  if (diff.added.length + diff.changed.length + diff.removed.length > lines.length) {
+    lines.push('...还有更多变更')
+  }
+  if (lines.length === 0) {
+    lines.push('没有变量变化')
+  }
+  return lines
+}
+
+const buildDiffPreview = (targetName: string, summaryText: string, lines: string[]) => {
+  const content = [
+    `即将切换到「${targetName}」`,
+    summaryText,
+    '',
+    ...lines
+  ].join('\n')
+  return h('div', { style: 'white-space: pre-line' }, content)
+}
+
 const handleActivateProfile = async (id: string) => {
+  const target = envStore.profiles.find(p => p.id === id)
+  if (!target) return
+
+  const previousActive = envStore.activeProfile
+  const diff = diffVariables(previousActive?.variables || [], target.variables)
+  const summaryText = `新增 ${diff.added.length} · 修改 ${diff.changed.length} · 删除 ${diff.removed.length}`
+
+  const diffLines = summarizeDiffLines(diff)
+  const confirmContent = buildDiffPreview(target.name, summaryText, diffLines)
+
+  try {
+    await ElMessageBox.confirm(
+      confirmContent,
+      '应用变更',
+      {
+        confirmButtonText: '确认切换',
+        cancelButtonText: '取消',
+        type: 'info',
+        distinguishCancelAndClose: true,
+        closeOnClickModal: false,
+        closeOnPressEscape: false
+      }
+    )
+  } catch {
+    return
+  }
+
   try {
     await envStore.activateProfile(id)
-    ElMessage.success('环境已切换')
+    lastDiff.value = diff
+    ElMessage.success(`环境已切换：${summaryText}`)
   } catch (error) {
     ElMessage.error('切换失败')
   }
@@ -186,14 +316,46 @@ const handleShowTemplates = () => {
   showTemplateDialog.value = true
 }
 
-const handleSelectTemplate = async (template: Template) => {
-  if (!envStore.currentProfileId) return
-  
-  for (const variable of template.variables) {
-    await envStore.addVariable(envStore.currentProfileId, { ...variable })
-  }
-  ElMessage.success(`已添加 ${template.variables.length} 个环境变量`)
+const mergeVariables = async (variables: EnvVariable[]) => {
+  if (!envStore.currentProfileId) return null
+  const profile = envStore.profiles.find(p => p.id === envStore.currentProfileId)
+  if (!profile) return null
+
+  const existing = new Map<string, EnvVariable>()
+  profile.variables.forEach(v => existing.set(v.key, { ...v }))
+
+  let added = 0
+  let updated = 0
+
+  variables.forEach(variable => {
+    if (existing.has(variable.key)) {
+      existing.set(variable.key, { ...existing.get(variable.key)!, ...variable })
+      updated += 1
+    } else {
+      existing.set(variable.key, { ...variable })
+      added += 1
+    }
+  })
+
+  profile.variables = Array.from(existing.values())
+  profile.updatedAt = Date.now()
+  await envStore.saveProfiles()
+
+  return { added, updated }
 }
+
+const handleSelectTemplate = async (payload: { template: Template; variables: EnvVariable[] }) => {
+  if (!envStore.currentProfileId) {
+    ElMessage.warning('请先选择一个配置')
+    return
+  }
+
+  const result = await mergeVariables(payload.variables)
+  if (!result) return
+  envStore.recordTemplateUsage(payload.template.id)
+  ElMessage.success(`已应用模板：新增 ${result.added}，更新 ${result.updated}`)
+}
+
 
 // 系统环境变量导入
 const handleImportAllSystemEnv = async () => {
@@ -212,9 +374,14 @@ const handleImportSingleSystemEnv = async (variable: EnvVariable) => {
     ElMessage.warning('请先选择一个配置')
     return
   }
-  
-  await envStore.addVariable(envStore.currentProfileId, { ...variable })
-  ElMessage.success(`已导入变量: ${variable.key}`)
+
+  const result = await mergeVariables([{ ...variable }])
+  if (!result) return
+  const message =
+    result.updated > 0
+      ? `已更新变量 ${variable.key}`
+      : `已新增变量 ${variable.key}`
+  ElMessage.success(message)
 }
 
 // 标签管理
@@ -253,6 +420,10 @@ const handleFilterGroup = (group: string | null) => {
 
 const handleFilterTags = (tags: string[]) => {
   envStore.selectedTags = tags
+}
+
+const handleSearchKeyword = (value: string) => {
+  envStore.searchKeyword = value
 }
 
 // 设置分组
@@ -294,6 +465,36 @@ const handleImport = async () => {
   }
 }
 
+const handleSaveCustomTemplate = async () => {
+  if (!envStore.currentProfile) {
+    ElMessage.warning('请先选择一个配置')
+    return
+  }
+
+  try {
+    const { value: name } = await ElMessageBox.prompt(
+      '请输入模板名称',
+      '保存当前配置为模板',
+      {
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputValue: `${envStore.currentProfile.name} 模板`,
+        inputPlaceholder: '例如：测试环境模板',
+        inputValidator: (val: string) => !!val && val.trim().length >= 2,
+        inputErrorMessage: '模板名称至少 2 个字符'
+      }
+    )
+    envStore.addCustomTemplate({
+      name: name.trim(),
+      description: envStore.currentProfile.description || '',
+      variables: envStore.currentProfile.variables.map(v => ({ ...v }))
+    })
+    ElMessage.success('模板已保存')
+  } catch {
+    // 用户取消
+  }
+}
+
 const handleExport = async () => {
   if (!envStore.currentProfileId) return
   
@@ -320,34 +521,48 @@ const handleExport = async () => {
     // 用户取消
   }
 }
+
+const stopProfilesWatcher = watch(
+  () => envStore.profiles.map(profile => ({
+    id: profile.id,
+    name: profile.name,
+    updatedAt: profile.updatedAt,
+    isActive: profile.isActive
+  })),
+  () => {
+    updateTrayState()
+  },
+  { deep: true }
+)
+
+const stopActiveWatcher = watch(
+  () => envStore.activeProfile ? envStore.activeProfile.id : null,
+  () => {
+    updateTrayState()
+  }
+)
 </script>
 
 <template>
   <div class="app-container">
-    <div class="app-header">
-      <div class="header-content">
-        <div>
-          <h1>SwitchEnv</h1>
-          <p>环境变量管理工具</p>
-        </div>
-        <el-button type="info" @click="handleShowSystemEnv">
-          <el-icon><Monitor /></el-icon>
-          系统环境变量 ({{ systemEnvVariables.length }})
-        </el-button>
-        <el-button type="warning" @click="handleShowEnvFileEditor">
-          <el-icon><Edit /></el-icon>
-          配置文件编辑器
-        </el-button>
-      </div>
-    </div>
-    
-    <div class="app-content">
-      <div class="sidebar">
+    <AppHeader
+      :active-profile-name="envStore.activeProfile?.name || null"
+      :active-profile-updated-at="envStore.activeProfile?.updatedAt || null"
+      :env-file-path="envFilePath"
+      :last-diff="lastDiff"
+      :system-env-count="systemEnvVariables.length"
+      @show-system-env="handleShowSystemEnv"
+      @show-env-file="handleShowEnvFileEditor"
+    />
+
+    <AppShell>
+      <template #sidebar>
         <ProfileList
           :profiles="envStore.filteredProfiles"
           :selected-id="envStore.currentProfileId"
           :tags="envStore.tags"
           :groups="envStore.allGroups"
+          :search-keyword="envStore.searchKeyword"
           @create="handleCreateProfile"
           @select="handleSelectProfile"
           @activate="handleActivateProfile"
@@ -356,13 +571,13 @@ const handleExport = async () => {
           @manage-tags="handleManageTags"
           @filter-group="handleFilterGroup"
           @filter-tags="handleFilterTags"
+          @update:search-keyword="handleSearchKeyword"
           @add-tag-to-profile="handleAddTagToProfile"
           @remove-tag-from-profile="handleRemoveTagFromProfile"
           @set-group="handleSetGroup"
         />
-      </div>
-      
-      <div class="main-content">
+      </template>
+      <template #main>
         <VariableEditor
           :profile="currentProfile"
           @add-variable="handleAddVariable"
@@ -373,8 +588,8 @@ const handleExport = async () => {
           @export="handleExport"
           @validate="handleValidate"
         />
-      </div>
-    </div>
+      </template>
+    </AppShell>
     
     <!-- 对话框 -->
     <ProfileDialog
@@ -385,7 +600,11 @@ const handleExport = async () => {
     
     <TemplateDialog
       v-model:visible="showTemplateDialog"
+      :custom-templates="envStore.customTemplates"
+      :recent-template-ids="envStore.recentTemplateIds"
+      :current-profile="currentProfile"
       @select="handleSelectTemplate"
+      @save-custom-template="handleSaveCustomTemplate"
     />
     
     <SystemEnvDialog
@@ -398,6 +617,7 @@ const handleExport = async () => {
     <!-- 环境配置文件编辑器 -->
     <EnvFileEditor
       v-model:visible="showEnvFileEditor"
+      :profile="currentProfile"
       @import-variables="handleImportFromConfigFile"
     />
     
@@ -425,54 +645,12 @@ const handleExport = async () => {
   </div>
 </template>
 
+
 <style scoped>
 .app-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  background: var(--el-bg-color-page);
-}
-
-.app-header {
-  padding: 16px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 700;
-}
-
-.app-header p {
-  margin: 4px 0 0 0;
-  opacity: 0.9;
-  font-size: 14px;
-}
-
-.app-content {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-.sidebar {
-  width: 350px;
-  display: flex;
-  flex-direction: column;
-}
-
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  min-height: 100vh;
+  background: var(--color-background);
 }
 </style>

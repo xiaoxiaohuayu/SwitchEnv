@@ -244,7 +244,11 @@ export class EnvManager {
         { name: '.bash_profile', path: path.join(homeDir, '.bash_profile'), description: 'Bash Profile' },
         { name: '.zshrc', path: path.join(homeDir, '.zshrc'), description: 'Zsh 配置文件' },
         { name: '.profile', path: path.join(homeDir, '.profile'), description: 'Shell Profile' },
-        { name: '.zprofile', path: path.join(homeDir, '.zprofile'), description: 'Zsh Profile' }
+        { name: '.zprofile', path: path.join(homeDir, '.zprofile'), description: 'Zsh Profile' },
+        { name: '/etc/profile', path: '/etc/profile', description: '系统级 Shell Profile' },
+        { name: '/etc/zshrc', path: '/etc/zshrc', description: '系统级 Zsh 配置' },
+        { name: '/etc/bashrc', path: '/etc/bashrc', description: '系统级 Bash 配置' },
+        { name: '/etc/environment', path: '/etc/environment', description: '系统环境变量文件 (部分发行版)' }
       ]
 
       possibleFiles.forEach(file => {
@@ -254,10 +258,17 @@ export class EnvManager {
       })
     } else if (platform === 'win32') {
       // Windows
+      const userProfile = process.env.USERPROFILE || homeDir
+      const psProfile = path.join(userProfile, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
       files.push({
-        name: '系统环境变量',
-        path: 'HKEY_CURRENT_USER\\Environment',
-        description: 'Windows 用户环境变量（注册表）'
+        name: 'PowerShell Profile',
+        path: psProfile,
+        description: 'PowerShell 用户配置文件'
+      })
+      files.push({
+        name: '.bashrc (Git Bash)',
+        path: path.join(userProfile, '.bashrc'),
+        description: 'Git Bash 配置（若已安装）'
       })
     }
 
@@ -292,6 +303,34 @@ export class EnvManager {
       return true
     } catch (error) {
       console.error('Failed to write env config file:', error)
+      return false
+    }
+  }
+
+  // 将配置应用到指定的系统配置文件（追加 SwitchEnv 块）
+  applyProfileToFile(filePath: string, profile: EnvProfile): boolean {
+    try {
+      const timestamp = new Date().toISOString()
+      const header = `\n# ----- SwitchEnv (${timestamp}) -----\n`
+      const footer = '# ----- End SwitchEnv -----\n'
+      const lines = profile.variables.map(v => {
+        const safeValue = (v.value ?? '').replace(/"/g, '\\"')
+        return `export ${v.key}="${safeValue}"`
+      })
+      const block = `${header}${lines.join('\n')}\n${footer}`
+
+      // 备份原文件
+      if (fs.existsSync(filePath)) {
+        const backupPath = `${filePath}.backup.${Date.now()}`
+        fs.copyFileSync(filePath, backupPath)
+        console.log('[EnvManager] 已备份原文件到:', backupPath)
+      }
+
+      fs.appendFileSync(filePath, block, 'utf-8')
+      console.log('[EnvManager] 已将配置写入:', filePath)
+      return true
+    } catch (error) {
+      console.error('Failed to apply profile to file:', error)
       return false
     }
   }

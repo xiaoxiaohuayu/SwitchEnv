@@ -1,5 +1,7 @@
-import './assets/main.css'
+import './assets/main.less'
 import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import 'virtual:uno.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

@@ -1,12 +1,145 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  Tray,
+  globalShortcut,
+  nativeImage,
+  type MenuItemConstructorOptions
+} from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { EnvManager } from './services/envManager'
 
+interface TrayProfileInfo {
+  id: string
+  name: string
+}
+
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let trayState: {
+  activeProfile: TrayProfileInfo | null
+  recentProfiles: TrayProfileInfo[]
+} = {
+  activeProfile: null,
+  recentProfiles: []
+}
+
+const handleProfileSwitchRequest = (profileId: string) => {
+  if (!profileId || !mainWindow) return
+  mainWindow.webContents.send('switch-profile', profileId)
+  mainWindow.show()
+}
+
+const buildTrayMenu = () => {
+  if (!tray) return
+  const menuTemplate: MenuItemConstructorOptions[] = [
+    {
+      label: trayState.activeProfile ? `当前：${trayState.activeProfile.name}` : '当前：未激活',
+      enabled: false
+    },
+    { type: 'separator' }
+  ]
+
+  if (trayState.recentProfiles.length === 0) {
+    menuTemplate.push({ label: '暂无可用配置', enabled: false })
+  } else {
+    trayState.recentProfiles.forEach((profile) => {
+      menuTemplate.push({
+        label: profile.name,
+        click: () => handleProfileSwitchRequest(profile.id)
+      })
+    })
+  }
+
+  menuTemplate.push(
+    { type: 'separator' },
+    {
+      label: '显示应用窗口',
+      click: () => mainWindow?.show()
+    },
+    {
+      label: '退出 SwitchEnv',
+      click: () => app.quit()
+    }
+  )
+
+  tray.setContextMenu(Menu.buildFromTemplate(menuTemplate))
+}
+
+const buildAppMenu = () => {
+  const quickSwitchItems: MenuItemConstructorOptions[] = [
+    {
+      label: trayState.activeProfile ? `当前：${trayState.activeProfile.name}` : '当前：未激活',
+      enabled: false
+    },
+    { type: 'separator' }
+  ]
+
+  if (trayState.recentProfiles.length === 0) {
+    quickSwitchItems.push({ label: '暂无可切换配置', enabled: false })
+  } else {
+    trayState.recentProfiles.forEach((profile, index) => {
+      quickSwitchItems.push({
+        label: `${index + 1}. ${profile.name}`,
+        accelerator: `CommandOrControl+Alt+${index + 1}`,
+        click: () => handleProfileSwitchRequest(profile.id)
+      })
+    })
+  }
+
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'SwitchEnv',
+      submenu: [
+        ...quickSwitchItems,
+        { type: 'separator' },
+        {
+          label: '显示窗口',
+          accelerator: 'CommandOrControl+Shift+S',
+          click: () => mainWindow?.show()
+        },
+        { role: 'quit' }
+      ]
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' }
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+const registerProfileShortcuts = () => {
+  globalShortcut.unregisterAll()
+  trayState.recentProfiles.slice(0, 5).forEach((profile, index) => {
+    const accelerator = `CommandOrControl+Alt+${index + 1}`
+    try {
+      globalShortcut.register(accelerator, () => handleProfileSwitchRequest(profile.id))
+    } catch (error) {
+      console.warn('Failed to register shortcut', accelerator, error)
+    }
+  })
+}
+
+const createTray = () => {
+  if (tray) return
+  const trayIcon = nativeImage.createFromPath(icon).resize({ width: 16, height: 16 })
+  trayIcon.setTemplateImage(true)
+  tray = new Tray(trayIcon)
+  tray.setToolTip('SwitchEnv')
+  tray.on('click', () => {
+    mainWindow?.show()
+  })
+  buildTrayMenu()
+}
+
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -19,12 +152,16 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -53,8 +190,16 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+  })
+
   // 创建环境管理器实例
   const envManager = new EnvManager()
+
+  createTray()
+  buildAppMenu()
+  registerProfileShortcuts()
 
   // IPC 处理器
   ipcMain.handle('load-profiles', async () => {
@@ -112,6 +257,21 @@ app.whenReady().then(() => {
 
   ipcMain.handle('import-system-env', async () => {
     return envManager.importSystemEnvVariables()
+  })
+
+  ipcMain.handle('get-env-file-path', async () => {
+    return envManager.getEnvFilePath()
+  })
+
+  ipcMain.handle('apply-profile-to-file', async (_, filePath, profile) => {
+    return envManager.applyProfileToFile(filePath, profile)
+  })
+
+  ipcMain.handle('update-tray-state', async (_, state) => {
+    trayState = state || { activeProfile: null, recentProfiles: [] }
+    buildTrayMenu()
+    buildAppMenu()
+    registerProfileShortcuts()
   })
 
   // 环境配置文件相关
