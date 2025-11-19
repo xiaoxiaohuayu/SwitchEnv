@@ -14,6 +14,36 @@ export const useEnvStore = defineStore('env', () => {
   const customTemplates = ref<Template[]>([])  // 用户自定义模板
   const recentTemplateIds = ref<string[]>([])  // 最近使用的模板 ID
 
+  // History state
+  const history = ref<Record<string, { past: EnvVariable[][], future: EnvVariable[][] }>>({})
+
+  const initHistory = (profileId: string) => {
+    if (!history.value[profileId]) {
+      history.value[profileId] = { past: [], future: [] }
+    }
+  }
+
+  const recordHistory = (profileId: string, variables: EnvVariable[]) => {
+    initHistory(profileId)
+    const state = history.value[profileId]
+    // Deep copy to avoid reference issues
+    state.past.push(JSON.parse(JSON.stringify(variables)))
+    state.future = [] // Clear future on new change
+    
+    // Limit history size
+    if (state.past.length > 50) {
+      state.past.shift()
+    }
+  }
+
+  const canUndo = (profileId: string) => {
+    return history.value[profileId]?.past.length > 0
+  }
+
+  const canRedo = (profileId: string) => {
+    return history.value[profileId]?.future.length > 0
+  }
+
   // 计算属性
   const currentProfile = computed(() => 
     profiles.value.find(p => p.id === currentProfileId.value) || null
@@ -150,6 +180,7 @@ export const useEnvStore = defineStore('env', () => {
   const addVariable = async (profileId: string, variable: EnvVariable) => {
     const profile = profiles.value.find(p => p.id === profileId)
     if (profile) {
+      recordHistory(profileId, profile.variables)
       profile.variables.push(variable)
       profile.updatedAt = Date.now()
       await saveProfiles()
@@ -159,6 +190,7 @@ export const useEnvStore = defineStore('env', () => {
   const updateVariable = async (profileId: string, index: number, variable: EnvVariable) => {
     const profile = profiles.value.find(p => p.id === profileId)
     if (profile && profile.variables[index]) {
+      recordHistory(profileId, profile.variables)
       profile.variables[index] = variable
       profile.updatedAt = Date.now()
       await saveProfiles()
@@ -168,6 +200,7 @@ export const useEnvStore = defineStore('env', () => {
   const deleteVariable = async (profileId: string, index: number) => {
     const profile = profiles.value.find(p => p.id === profileId)
     if (profile) {
+      recordHistory(profileId, profile.variables)
       profile.variables.splice(index, 1)
       profile.updatedAt = Date.now()
       await saveProfiles()
@@ -344,6 +377,45 @@ export const useEnvStore = defineStore('env', () => {
     }
   }
 
+  // History actions
+  const undo = async (profileId: string) => {
+    const state = history.value[profileId]
+    if (!state || state.past.length === 0) return
+
+    const profile = profiles.value.find(p => p.id === profileId)
+    if (!profile) return
+
+    // Save current state to future
+    state.future.push(JSON.parse(JSON.stringify(profile.variables)))
+
+    // Restore from past
+    const previous = state.past.pop()
+    if (previous) {
+      profile.variables = previous
+      profile.updatedAt = Date.now()
+      await saveProfiles()
+    }
+  }
+
+  const redo = async (profileId: string) => {
+    const state = history.value[profileId]
+    if (!state || state.future.length === 0) return
+
+    const profile = profiles.value.find(p => p.id === profileId)
+    if (!profile) return
+
+    // Save current state to past
+    state.past.push(JSON.parse(JSON.stringify(profile.variables)))
+
+    // Restore from future
+    const next = state.future.pop()
+    if (next) {
+      profile.variables = next
+      profile.updatedAt = Date.now()
+      await saveProfiles()
+    }
+  }
+
   return {
     profiles,
     currentProfileId,
@@ -358,6 +430,8 @@ export const useEnvStore = defineStore('env', () => {
     searchKeyword,
     allGroups,
     loading,
+    canUndo: (id: string) => canUndo(id),
+    canRedo: (id: string) => canRedo(id),
     loadProfiles,
     saveProfiles,
     createProfile,
@@ -380,6 +454,9 @@ export const useEnvStore = defineStore('env', () => {
     setProfileGroup,
     addCustomTemplate,
     deleteCustomTemplate,
-    recordTemplateUsage
+    recordTemplateUsage,
+    undo,
+    redo,
+    recordHistory
   }
 })

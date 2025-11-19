@@ -1,6 +1,6 @@
 <template>
   <div class="variable-editor">
-    <div class="editor-header">
+    <div class="editor-header" v-if="profile">
       <div v-if="profile">
         <h2>{{ profile.name }}</h2>
         <p v-if="profile.description" class="description">{{ profile.description }}</p>
@@ -9,33 +9,49 @@
           <el-tag v-else type="info">未激活</el-tag>
         </div>
       </div>
-      <div v-else class="no-selection">
-        <el-empty description="请从左侧选择一个配置" />
-      </div>
+    </div>
+
+    <div v-else class="no-selection">
+      <Dashboard 
+        :recent-profiles="recentProfiles || []"
+        @create="$emit('add-variable')" 
+        @import="$emit('import')"
+        @show-system-env="$emit('show-system-env')"
+        @select="handleSelectProfile"
+      />
     </div>
 
     <div v-if="profile" class="editor-content">
       <div class="toolbar">
-        <el-button type="primary" @click="addVariable">
-          <el-icon><Plus /></el-icon>
-          添加变量
-        </el-button>
-        <el-button @click="$emit('show-templates')">
-          <el-icon><DocumentAdd /></el-icon>
-          使用模板
-        </el-button>
-        <el-button @click="$emit('import')">
-          <el-icon><Upload /></el-icon>
-          导入
-        </el-button>
-        <el-button @click="$emit('export')">
-          <el-icon><Download /></el-icon>
-          导出
-        </el-button>
-        <el-button @click="$emit('validate')">
-          <el-icon><CircleCheck /></el-icon>
-          验证配置
-        </el-button>
+        <div class="toolbar-group">
+          <el-button type="primary" :icon="Plus" @click="addVariable">添加变量</el-button>
+          <el-button :icon="DocumentAdd" @click="$emit('show-templates')">使用模板</el-button>
+        </div>
+        
+        <div class="toolbar-group">
+          <el-tooltip content="撤销 (Cmd+Z)" placement="bottom">
+            <el-button 
+              :icon="RefreshLeft" 
+              circle 
+              :disabled="!profile || !envStore.canUndo(profile.id)"
+              @click="profile && envStore.undo(profile.id)"
+            />
+          </el-tooltip>
+          <el-tooltip content="重做 (Cmd+Shift+Z)" placement="bottom">
+            <el-button 
+              :icon="RefreshRight" 
+              circle 
+              :disabled="!profile || !envStore.canRedo(profile.id)"
+              @click="profile && envStore.redo(profile.id)"
+            />
+          </el-tooltip>
+        </div>
+
+        <div class="toolbar-group">
+          <el-button :icon="Upload" @click="$emit('import')">导入</el-button>
+          <el-button :icon="Download" @click="$emit('export')">导出</el-button>
+          <el-button :icon="CircleCheck" @click="$emit('validate')">验证</el-button>
+        </div>
       </div>
 
       <el-scrollbar class="variables-list">
@@ -91,11 +107,16 @@
 </template>
 
 <script setup lang="ts">
-import { Plus, DocumentAdd, Upload, Download, CircleCheck } from '@element-plus/icons-vue'
+import { Plus, DocumentAdd, Upload, Download, CircleCheck, RefreshLeft, RefreshRight } from '@element-plus/icons-vue'
 import type { EnvProfile, EnvVariable } from '../types'
+import Dashboard from './Dashboard.vue'
+import { useEnvStore } from '../stores/env'
+
+const envStore = useEnvStore()
 
 defineProps<{
   profile: EnvProfile | null
+  recentProfiles?: EnvProfile[]
 }>()
 
 const emit = defineEmits<{
@@ -106,7 +127,13 @@ const emit = defineEmits<{
   'import': []
   'export': []
   'validate': []
+  'show-system-env': []
+  'select-profile': [id: string]
 }>()
+
+const handleSelectProfile = (id: string) => {
+  emit('select-profile', id)
+}
 
 const addVariable = () => {
   emit('add-variable')
@@ -172,11 +199,17 @@ const handleVariableChange = (index: number, variable: EnvVariable) => {
 }
 
 .toolbar {
-  padding: 12px 24px;
+  padding: 16px 24px;
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid var(--app-border-color);
+  background: var(--color-background);
+  justify-content: space-between;
+}
+
+.toolbar-group {
   display: flex;
   gap: 12px;
-  border-bottom: 1px solid var(--app-border-color);
-  background: var(--app-card-bg);
   align-items: center;
 }
 

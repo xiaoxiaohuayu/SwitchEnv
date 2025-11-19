@@ -14,6 +14,9 @@ import AppHeader from './components/layout/AppHeader.vue'
 import AppShell from './components/layout/AppShell.vue'
 import type { EnvVariable, Template, Tag } from './types'
 
+import CommandPalette from './components/CommandPalette.vue'
+import SettingsDialog from './components/SettingsDialog.vue'
+
 const envStore = useEnvStore()
 
 const showProfileDialog = ref(false)
@@ -22,6 +25,8 @@ const showSystemEnvDialog = ref(false)
 const showTagManager = ref(false)
 const showValidationPanel = ref(false)
 const showEnvFileEditor = ref(false)
+const showCommandPalette = ref(false)
+const showSettingsDialog = ref(false)
 const editingProfile = ref<any>(null)
 const systemEnvVariables = ref<EnvVariable[]>([])
 const validationPanelRef = ref<InstanceType<typeof ValidationPanel> | null>(null)
@@ -60,7 +65,15 @@ const handleExternalSwitch = (_event: any, profileId: string) => {
   }
 }
 
+const handleKeydown = (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault()
+    showCommandPalette.value = !showCommandPalette.value
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', handleKeydown)
   await envStore.loadProfiles()
   envStore.loadTags()  // 加载标签
   envStore.loadCustomTemplates()
@@ -100,6 +113,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
   window.electron?.ipcRenderer?.removeListener('switch-profile', handleExternalSwitch)
   stopProfilesWatcher()
   stopActiveWatcher()
@@ -542,6 +556,23 @@ const stopActiveWatcher = watch(
     updateTrayState()
   }
 )
+
+const handleCommand = (action: string, payload?: any) => {
+  switch (action) {
+    case 'create':
+      handleCreateProfile()
+      break
+    case 'import':
+      handleImport()
+      break
+    case 'settings':
+      showSettingsDialog.value = true
+      break
+    case 'activate':
+      if (payload) handleActivateProfile(payload)
+      break
+  }
+}
 </script>
 
 <template>
@@ -583,6 +614,7 @@ const stopActiveWatcher = watch(
       <template #main>
         <VariableEditor
           :profile="currentProfile"
+          :recent-profiles="envStore.profiles.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5)"
           @add-variable="handleAddVariable"
           @update-variable="handleUpdateVariable"
           @remove-variable="handleRemoveVariable"
@@ -590,6 +622,8 @@ const stopActiveWatcher = watch(
           @import="handleImport"
           @export="handleExport"
           @validate="handleValidate"
+          @show-system-env="handleShowSystemEnv"
+          @select-profile="handleSelectProfile"
         />
       </template>
     </AppShell>
@@ -645,9 +679,21 @@ const stopActiveWatcher = watch(
         :variables="currentProfile?.variables || []"
       />
     </el-drawer>
+
+    <CommandPalette
+      v-model:visible="showCommandPalette"
+      @command="handleCommand"
+    />
+    
+    <SettingsDialog
+      v-model:visible="showSettingsDialog"
+    />
   </div>
 </template>
 
+<script lang="ts">
+// ... existing script ...
+</script>
 
 <style scoped>
 .app-container {
