@@ -27,6 +27,7 @@ const systemEnvVariables = ref<EnvVariable[]>([])
 const validationPanelRef = ref<InstanceType<typeof ValidationPanel> | null>(null)
 const envFilePath = ref('')
 const lastDiff = ref<{ added: EnvVariable[]; removed: EnvVariable[]; changed: { key: string; oldValue: string; newValue: string }[] } | null>(null)
+const workspaceName = ref('Projects')
 
 const currentProfile = computed(() => envStore.currentProfile)
 
@@ -551,6 +552,8 @@ const stopActiveWatcher = watch(
       :env-file-path="envFilePath"
       :last-diff="lastDiff"
       :system-env-count="systemEnvVariables.length"
+      :workspace="workspaceName"
+      :location="currentProfile?.name || '未选择'"
       @show-system-env="handleShowSystemEnv"
       @show-env-file="handleShowEnvFileEditor"
     />

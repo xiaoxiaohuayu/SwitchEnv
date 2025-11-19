@@ -225,45 +225,65 @@ const formatDate = (timestamp: number) => {
   align-items: center;
   padding: 16px;
   border-bottom: 1px solid var(--app-border-color);
+  background: var(--color-background-soft);
 }
 
 .list-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  color: var(--color-text);
 }
 
 .list-content {
   flex: 1;
-  padding: 8px;
+  padding: 12px;
+  background: var(--color-background-mute);
 }
 
 .empty-state {
   padding: 40px 20px;
   text-align: center;
+  color: var(--color-text-soft);
 }
 
 .profile-item {
-  padding: 12px;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  border: 1px solid var(--app-border-color);
+  padding: 16px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: var(--app-card-bg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .profile-item:hover {
-  border-color: var(--el-color-primary);
-  background: var(--el-fill-color-light);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary-200);
 }
 
 .profile-item.selected {
   border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  background: var(--color-background-soft);
+  box-shadow: 0 0 0 1px var(--el-color-primary);
 }
 
 .profile-item.active {
-  border-color: var(--el-color-success);
+  background: linear-gradient(to right, var(--color-background-soft), rgba(34, 197, 94, 0.05));
+}
+
+.profile-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--el-color-success);
 }
 
 .profile-header {
@@ -281,30 +301,42 @@ const formatDate = (timestamp: number) => {
 
 .active-icon {
   color: var(--el-color-success);
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .profile-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
+  color: var(--color-text);
 }
 
 .profile-actions {
   display: flex;
   gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.profile-item:hover .profile-actions {
+  opacity: 1;
 }
 
 .profile-description {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  margin-bottom: 8px;
+  color: var(--color-text-soft);
+  font-size: 13px;
+  margin-bottom: 12px;
+  line-height: 1.4;
 }
 
 .profile-meta {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 12px;
-  color: var(--el-text-color-placeholder);
+  color: var(--color-text-soft);
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-border-color);
 }
 
 .header-actions {
@@ -313,32 +345,31 @@ const formatDate = (timestamp: number) => {
 }
 
 .filter-section {
-  padding: 8px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--app-border-color);
-  background: var(--color-background-mute);
+  background: var(--color-background-soft);
 }
 
 .profile-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   margin-top: 8px;
 }
 
 .profile-tags :deep(.el-tag) {
-  font-size: 11px;
+  border: none;
+  font-weight: 500;
 }
 
 .profile-group {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.profile-group .el-icon {
-  font-size: 14px;
+  color: var(--color-text-soft);
+  background: var(--color-background-mute);
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 </style>

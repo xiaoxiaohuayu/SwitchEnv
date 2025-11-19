@@ -130,29 +130,37 @@ const handleVariableChange = (index: number, variable: EnvVariable) => {
 }
 
 .editor-header {
-  padding: 20px;
+  padding: 24px;
   border-bottom: 1px solid var(--app-border-color);
+  background: var(--color-background-soft);
 }
 
 .editor-header h2 {
   margin: 0 0 8px 0;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 600;
+  color: var(--color-text);
 }
 
 .description {
-  margin: 0 0 12px 0;
-  color: var(--el-text-color-secondary);
+  margin: 0 0 16px 0;
+  color: var(--color-text-soft);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .profile-status {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .no-selection {
-  padding: 40px;
-  text-align: center;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-soft);
 }
 
 .editor-content {
@@ -160,29 +168,51 @@ const handleVariableChange = (index: number, variable: EnvVariable) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--color-background-mute);
 }
 
 .toolbar {
-  padding: 16px;
+  padding: 12px 24px;
   display: flex;
-  gap: 8px;
+  gap: 12px;
   border-bottom: 1px solid var(--app-border-color);
-  background: var(--color-background-mute);
+  background: var(--app-card-bg);
+  align-items: center;
 }
 
 .variables-list {
   flex: 1;
-  padding: 16px;
-  background: var(--color-background-soft);
+  padding: 24px;
 }
 
 .empty-variables {
-  padding: 40px;
+  padding: 60px 20px;
   text-align: center;
+  color: var(--color-text-soft);
 }
 
 :deep(.el-table) {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--color-background-mute);
+  --el-table-border-color: var(--app-border-color);
   background: transparent;
   color: var(--color-text);
+}
+
+:deep(.el-table th.el-table__cell) {
+  background: transparent;
+  font-weight: 600;
+  color: var(--color-text-soft);
+}
+
+:deep(.el-input__wrapper) {
+  background-color: var(--color-background-soft);
+  box-shadow: 0 0 0 1px var(--app-border-color) inset;
+}
+
+:deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
 }
 </style>
