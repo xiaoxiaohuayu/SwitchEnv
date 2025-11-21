@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="dialogVisible"
-    title="环境配置文件编辑器"
+    :title="getDialogTitle()"
     width="85%"
     top="5vh"
     @close="handleClose"
@@ -9,24 +9,51 @@
     <div class="env-file-editor">
       <!-- 文件选择区域 -->
       <div class="file-selector">
-        <el-select
-          v-model="selectedFile"
-          placeholder="选择要编辑的配置文件"
-          style="width: 400px"
-          @change="handleFileChange"
-        >
-          <el-option
-            v-for="file in availableFiles"
-            :key="file.path"
-            :label="`${file.name} - ${file.description}`"
-            :value="file.path"
+        <div style="display: flex; gap: 12px; align-items: center; flex: 1">
+          <el-radio-group v-model="editMode" @change="handleModeChange">
+            <el-radio-button value="file">配置文件</el-radio-button>
+            <el-radio-button value="system-env">系统环境变量</el-radio-button>
+            <el-radio-button value="user-env">用户环境变量</el-radio-button>
+          </el-radio-group>
+          
+          <el-select
+            v-if="editMode === 'file'"
+            v-model="selectedFile"
+            placeholder="选择要编辑的配置文件"
+            style="width: 400px"
+            filterable
+            allow-create
+            @change="handleFileChange"
           >
-            <div class="file-option">
-              <span class="file-name">{{ file.name }}</span>
-              <span class="file-desc">{{ file.description }}</span>
-            </div>
-          </el-option>
-        </el-select>
+            <el-option
+              v-for="file in availableFiles"
+              :key="file.path"
+              :label="`${file.name} - ${file.description}`"
+              :value="file.path"
+            >
+              <div class="file-option">
+                <span class="file-name">{{ file.name }}</span>
+                <span class="file-desc">{{ file.description }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          
+          <template v-if="editMode === 'file'">
+            <el-tooltip content="创建新的 PowerShell Profile 文件" placement="top">
+              <el-button type="success" plain @click="handleCreatePSProfile">
+                <el-icon><DocumentAdd /></el-icon>
+                创建 PS Profile
+              </el-button>
+            </el-tooltip>
+            
+            <el-tooltip content="手动输入文件路径" placement="top">
+              <el-button plain @click="handleManualInput">
+                <el-icon><Edit /></el-icon>
+                手动输入
+              </el-button>
+            </el-tooltip>
+          </template>
+        </div>
         
         <div class="file-actions">
           <el-button type="primary" :disabled="!selectedFile" @click="handleLoad">
@@ -54,17 +81,26 @@
       </div>
 
       <!-- 编辑器区域 -->
-      <div v-if="selectedFile" class="editor-container">
+      <div v-if="editMode !== 'file' || selectedFile" class="editor-container">
         <div class="editor-header">
           <div class="file-info">
             <el-icon><Document /></el-icon>
-            <span class="file-path">{{ selectedFile }}</span>
+            <span v-if="editMode === 'file'" class="file-path">{{ selectedFile }}</span>
+            <span v-else-if="editMode === 'system-env'" class="file-path">
+              Windows 系统环境变量 (需要管理员权限)
+            </span>
+            <span v-else class="file-path">
+              Windows 用户环境变量 (当前用户)
+            </span>
             <el-tag v-if="hasChanges" type="warning" size="small">未保存</el-tag>
             <el-tag v-else type="success" size="small">已保存</el-tag>
           </div>
           <div class="editor-tools">
             <el-text size="small">行数: {{ lineCount }}</el-text>
             <el-text size="small">字符数: {{ charCount }}</el-text>
+            <el-text v-if="editMode !== 'file'" size="small" type="primary">
+              检测到: {{ parsedVariables.length }} 个变量
+            </el-text>
           </div>
         </div>
 
@@ -72,7 +108,8 @@
           v-model="currentContent"
           type="textarea"
           :rows="20"
-          placeholder="文件内容将显示在这里..."
+          :readonly="false"
+          :placeholder="getPlaceholder()"
           class="code-editor"
           @input="handleContentChange"
         />
@@ -100,7 +137,16 @@
         </div>
       </div>
 
-      <el-empty v-else description="请选择一个配置文件开始编辑" />
+      <el-empty v-else description="请选择一个配置文件开始编辑">
+        <template #description>
+          <div style="line-height: 1.8">
+            <p>请选择一个配置文件开始编辑</p>
+            <p style="font-size: 12px; color: var(--el-text-color-secondary)">
+              如果没有可用文件，请点击“创建 PS Profile”或“手动输入”按钮
+            </p>
+          </div>
+        </template>
+      </el-empty>
     </div>
 
     <template #footer>
@@ -134,7 +180,9 @@ import {
   Refresh,
   DocumentChecked,
   Download,
-  Upload
+  Upload,
+  DocumentAdd,
+  Edit
 } from '@element-plus/icons-vue'
 import type { EnvProfile, EnvVariable } from '../types'
 
@@ -149,6 +197,7 @@ const emit = defineEmits<{
 }>()
 
 const dialogVisible = ref(props.visible)
+const editMode = ref<'file' | 'system-env' | 'user-env'>('file')
 const availableFiles = ref<{ name: string; path: string; description: string }[]>([])
 const selectedFile = ref<string>('')
 const currentContent = ref<string>('')
@@ -159,7 +208,13 @@ const showParsedVars = ref(true)
 watch(() => props.visible, async (val) => {
   dialogVisible.value = val
   if (val) {
-    await loadAvailableFiles()
+    // 默认加载用户环境变量模式
+    if (!currentContent.value) {
+      editMode.value = 'user-env'
+      await loadUserEnv()
+    } else {
+      await loadAvailableFiles()
+    }
   }
 })
 
@@ -180,6 +235,26 @@ const charCount = computed(() => {
   return currentContent.value ? currentContent.value.length : 0
 })
 
+const getPlaceholder = () => {
+  if (editMode.value === 'system-env') {
+    return '直接编辑 Windows 系统环境变量，格式: KEY=VALUE（每行一个）\n\n例如:\nJAVA_HOME=C:\\Program Files\\Java\\jdk-17\nNODE_ENV=production'
+  } else if (editMode.value === 'user-env') {
+    return '直接编辑 Windows 用户环境变量，格式: KEY=VALUE（每行一个）\n\n例如:\nMY_API_KEY=abc123\nAPI_URL=https://api.example.com'
+  } else {
+    return '文件内容将显示在这里...'
+  }
+}
+
+const getDialogTitle = () => {
+  if (editMode.value === 'system-env') {
+    return 'Windows 系统环境变量编辑器'
+  } else if (editMode.value === 'user-env') {
+    return 'Windows 用户环境变量编辑器'
+  } else {
+    return '环境配置文件编辑器'
+  }
+}
+
 // 加载可用的配置文件列表
 const loadAvailableFiles = async (): Promise<void> => {
   try {
@@ -189,6 +264,70 @@ const loadAvailableFiles = async (): Promise<void> => {
   } catch (error) {
     console.error('Failed to load env config files:', error)
     ElMessage.error('获取配置文件列表失败')
+  }
+}
+
+// 处理模式切换
+const handleModeChange = async (): Promise<void> => {
+  // 如果有未保存的更改，提示用户
+  if (hasChanges.value) {
+    try {
+      await ElMessageBox.confirm(
+        '当前有未保存的更改，切换模式将丢失这些更改。是否继续？',
+        '确认切换',
+        {
+          confirmButtonText: '继续',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      )
+    } catch {
+      // 用户取消，恢复之前的模式
+      return
+    }
+  }
+
+  // 清空当前内容
+  currentContent.value = ''
+  originalContent.value = ''
+  selectedFile.value = ''
+  parsedVariables.value = []
+
+  // 根据模式加载内容
+  if (editMode.value === 'system-env') {
+    await loadSystemEnv()
+  } else if (editMode.value === 'user-env') {
+    await loadUserEnv()
+  }
+}
+
+// 加载系统环境变量
+const loadSystemEnv = async (): Promise<void> => {
+  try {
+    const result = await window.api.getWindowsEnv()
+    const envLines = result.system.map(v => `${v.key}=${v.value}`)
+    currentContent.value = envLines.join('\n')
+    originalContent.value = currentContent.value
+    await parseVariables()
+    ElMessage.success(`加载了 ${result.system.length} 个系统环境变量`)
+  } catch (error) {
+    console.error('Failed to load system env:', error)
+    ElMessage.error('加载系统环境变量失败')
+  }
+}
+
+// 加载用户环境变量
+const loadUserEnv = async (): Promise<void> => {
+  try {
+    const result = await window.api.getWindowsEnv()
+    const envLines = result.user.map(v => `${v.key}=${v.value}`)
+    currentContent.value = envLines.join('\n')
+    originalContent.value = currentContent.value
+    await parseVariables()
+    ElMessage.success(`加载了 ${result.user.length} 个用户环境变量`)
+  } catch (error) {
+    console.error('Failed to load user env:', error)
+    ElMessage.error('加载用户环境变量失败')
   }
 }
 
@@ -233,7 +372,26 @@ const handleLoad = async (): Promise<void> => {
       
       ElMessage.success('文件加载成功')
     } else {
-      ElMessage.warning('文件不存在或无法读取')
+      // 文件不存在，提示用户是否创建
+      try {
+        await ElMessageBox.confirm(
+          `文件不存在: ${selectedFile.value}\n\n是否创建一个新的空文件？`,
+          '文件不存在',
+          {
+            confirmButtonText: '创建文件',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }
+        )
+        
+        // 用户确认创建
+        currentContent.value = '# 环境配置文件\n# 由 SwitchEnv 创建\n\n'
+        originalContent.value = ''
+        ElMessage.info('请编辑并保存文件')
+      } catch {
+        // 用户取消创建
+        selectedFile.value = ''
+      }
     }
   } catch (error) {
     console.error('Failed to read file:', error)
@@ -296,9 +454,18 @@ const parseVariables = async (): Promise<void> => {
 
 // 保存文件
 const handleSave = async (): Promise<void> => {
-  if (!selectedFile.value || !hasChanges.value) return
+  if (!hasChanges.value) return
 
   try {
+    // 如果是系统或用户环境变量模式
+    if (editMode.value === 'system-env' || editMode.value === 'user-env') {
+      await saveToWindowsEnv()
+      return
+    }
+
+    // 文件模式
+    if (!selectedFile.value) return
+
     await ElMessageBox.confirm(
       '保存将修改系统配置文件，原文件会自动备份。是否继续？',
       '确认保存',
@@ -319,6 +486,62 @@ const handleSave = async (): Promise<void> => {
       ElMessage.success('保存成功！原文件已自动备份')
     } else {
       ElMessage.error('保存失败')
+    }
+  } catch {
+    // 用户取消
+  }
+}
+
+// 保存到 Windows 环境变量
+const saveToWindowsEnv = async (): Promise<void> => {
+  const scope = editMode.value === 'system-env' ? 'system' : 'user'
+  const scopeName = scope === 'system' ? '系统' : '用户'
+
+  try {
+    await ElMessageBox.confirm(
+      `确认要将更改保存到 Windows ${scopeName}环境变量吗？\n\n${scope === 'system' ? '⚠️ 需要管理员权限' : '✅ 无需管理员权限'}`,
+      `保存到${scopeName}环境变量`,
+      {
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    // 解析当前内容
+    const variables = currentContent.value
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'))
+      .map(line => {
+        const [key, ...valueParts] = line.split('=')
+        return {
+          key: key.trim(),
+          value: valueParts.join('=').trim()
+        }
+      })
+      .filter(v => v.key && v.value)
+
+    if (variables.length === 0) {
+      ElMessage.warning('没有检测到有效的环境变量')
+      return
+    }
+
+    // 批量设置环境变量
+    const result = await window.api.setWindowsEnvBatch(variables, scope)
+
+    if (result.success > 0) {
+      originalContent.value = currentContent.value
+      ElMessage.success(`成功保存 ${result.success} 个环境变量${result.failed > 0 ? `，${result.failed} 个失败` : ''}`)
+      
+      // 重新加载
+      if (editMode.value === 'system-env') {
+        await loadSystemEnv()
+      } else {
+        await loadUserEnv()
+      }
+    } else {
+      ElMessage.error('保存失败，请检查权限')
     }
   } catch {
     // 用户取消
@@ -360,6 +583,69 @@ const handleClose = async (): Promise<void> => {
   originalContent.value = ''
   parsedVariables.value = []
 }
+
+// 创建 PowerShell Profile
+const handleCreatePSProfile = async (): Promise<void> => {
+  try {
+    const userProfile = await ElMessageBox.prompt(
+      'PowerShell Profile 路径（默认为当前用户）',
+      '创建 PowerShell Profile',
+      {
+        confirmButtonText: '创建',
+        cancelButtonText: '取消',
+        inputValue: `${process.env.USERPROFILE || ''}\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1`,
+        inputPlaceholder: '请输入文件路径'
+      }
+    )
+    
+    if (userProfile.value) {
+      selectedFile.value = userProfile.value.trim()
+      currentContent.value = '# PowerShell Profile\n# 由 SwitchEnv 创建\n\n'
+      originalContent.value = ''
+      
+      // 自动保存创建文件
+      const success = await window.api.writeEnvConfigFile(
+        selectedFile.value,
+        currentContent.value
+      )
+      
+      if (success) {
+        originalContent.value = currentContent.value
+        ElMessage.success('文件创建成功！')
+        // 重新加载文件列表
+        await loadAvailableFiles()
+      } else {
+        ElMessage.error('文件创建失败')
+      }
+    }
+  } catch {
+    // 用户取消
+  }
+}
+
+// 手动输入文件路径
+const handleManualInput = async (): Promise<void> => {
+  try {
+    const result = await ElMessageBox.prompt(
+      '请输入要编辑的文件路径',
+      '手动输入文件路径',
+      {
+        confirmButtonText: '打开',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如: C:\\Users\\YourName\\.bashrc',
+        inputValidator: (val: string) => !!val && val.trim().length > 0,
+        inputErrorMessage: '请输入有效的文件路径'
+      }
+    )
+    
+    if (result.value) {
+      selectedFile.value = result.value.trim()
+      await handleLoad()
+    }
+  } catch {
+    // 用户取消
+  }
+}
 </script>
 
 <style scoped>
@@ -370,10 +656,12 @@ const handleClose = async (): Promise<void> => {
 .file-selector {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--el-border-color);
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .file-actions {
@@ -437,8 +725,17 @@ const handleClose = async (): Promise<void> => {
 .code-editor :deep(textarea) {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   line-height: 1.6;
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: #282c34;
+  color: #abb2bf;
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color);
+}
+
+.code-editor :deep(textarea:focus) {
+  background: #1e2127;
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
 }
 
 .parsed-variables {

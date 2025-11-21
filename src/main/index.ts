@@ -164,6 +164,77 @@ function createWindow(): void {
     mainWindow = null
   })
 
+  // 添加右键菜单
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const contextMenuTemplate: MenuItemConstructorOptions[] = []
+
+    // 如果是可编辑区域，添加编辑相关菜单
+    if (params.isEditable) {
+      contextMenuTemplate.push(
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'delete', label: '删除' },
+        { type: 'separator' },
+        { role: 'selectAll', label: '全选' }
+      )
+    } else if (params.selectionText) {
+      // 如果有选中文本，显示复制
+      contextMenuTemplate.push(
+        { role: 'copy', label: '复制' }
+      )
+    }
+
+    // 添加分隔线（如果前面有内容）
+    if (contextMenuTemplate.length > 0) {
+      contextMenuTemplate.push({ type: 'separator' })
+    }
+
+    // 添加刷新和重载菜单
+    contextMenuTemplate.push(
+      {
+        label: '刷新',
+        accelerator: 'CommandOrControl+R',
+        click: () => {
+          mainWindow?.webContents.reload()
+        }
+      },
+      {
+        label: '强制重载',
+        accelerator: 'CommandOrControl+Shift+R',
+        click: () => {
+          mainWindow?.webContents.reloadIgnoringCache()
+        }
+      }
+    )
+
+    // 开发模式下添加开发者工具
+    if (is.dev) {
+      contextMenuTemplate.push(
+        { type: 'separator' },
+        {
+          label: '开发者工具',
+          accelerator: 'F12',
+          click: () => {
+            mainWindow?.webContents.toggleDevTools()
+          }
+        },
+        {
+          label: '检查元素',
+          click: () => {
+            mainWindow?.webContents.inspectElement(params.x, params.y)
+          }
+        }
+      )
+    }
+
+    const contextMenu = Menu.buildFromTemplate(contextMenuTemplate)
+    contextMenu.popup()
+  })
+
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -253,6 +324,26 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-system-env', async () => {
     return envManager.getSystemEnvVariables()
+  })
+
+  // 获取 Windows 环境变量(区分系统和用户)
+  ipcMain.handle('get-windows-env', async () => {
+    return envManager.getWindowsEnvVariables()
+  })
+
+  // 设置 Windows 环境变量
+  ipcMain.handle('set-windows-env', async (_, key: string, value: string, scope: 'system' | 'user') => {
+    return envManager.setWindowsEnvVariable(key, value, scope)
+  })
+
+  // 删除 Windows 环境变量
+  ipcMain.handle('delete-windows-env', async (_, key: string, scope: 'system' | 'user') => {
+    return envManager.deleteWindowsEnvVariable(key, scope)
+  })
+
+  // 批量设置 Windows 环境变量
+  ipcMain.handle('set-windows-env-batch', async (_, variables: any[], scope: 'system' | 'user') => {
+    return envManager.setWindowsEnvVariables(variables, scope)
   })
 
   ipcMain.handle('import-system-env', async () => {

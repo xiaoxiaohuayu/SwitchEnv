@@ -6,6 +6,7 @@ import * as os from 'os'
 export interface EnvVariable {
   key: string
   value: string
+  scope?: 'system' | 'user' | 'process' // Windows: 系统变量 | 用户变量 | 进程变量
 }
 
 export interface EnvProfile {
@@ -214,6 +215,176 @@ export class EnvManager {
     return variables.sort((a, b) => a.key.localeCompare(b.key))
   }
 
+  // 获取 Windows 环境变量(区分系统和用户)
+  getWindowsEnvVariables(): { system: EnvVariable[], user: EnvVariable[], process: EnvVariable[] } {
+    const result = {
+      system: [] as EnvVariable[],
+      user: [] as EnvVariable[],
+      process: [] as EnvVariable[]
+    }
+
+    if (process.platform !== 'win32') {
+      console.log('[EnvManager] 非 Windows 平台,无法区分系统和用户变量')
+      return result
+    }
+
+    try {
+      const { execSync } = require('child_process')
+      
+      // 获取系统环境变量
+      console.log('[EnvManager] 正在读取系统环境变量...')
+      const systemEnvCmd = 'powershell -Command "[Environment]::GetEnvironmentVariables(\'Machine\') | ConvertTo-Json"'
+      const systemEnvOutput = execSync(systemEnvCmd, { encoding: 'utf-8' })
+      const systemEnv = JSON.parse(systemEnvOutput)
+      
+      for (const [key, value] of Object.entries(systemEnv)) {
+        if (value !== undefined && value !== null) {
+          result.system.push({
+            key,
+            value: String(value),
+            scope: 'system'
+          })
+        }
+      }
+      console.log('[EnvManager] 系统变量:', result.system.length, '个')
+
+      // 获取用户环境变量
+      console.log('[EnvManager] 正在读取用户环境变量...')
+      const userEnvCmd = 'powershell -Command "[Environment]::GetEnvironmentVariables(\'User\') | ConvertTo-Json"'
+      const userEnvOutput = execSync(userEnvCmd, { encoding: 'utf-8' })
+      const userEnv = JSON.parse(userEnvOutput)
+      
+      for (const [key, value] of Object.entries(userEnv)) {
+        if (value !== undefined && value !== null) {
+          result.user.push({
+            key,
+            value: String(value),
+            scope: 'user'
+          })
+        }
+      }
+      console.log('[EnvManager] 用户变量:', result.user.length, '个')
+
+      // 获取当前进程环境变量(包含合并后的所有变量)
+      console.log('[EnvManager] 正在读取进程环境变量...')
+      const systemKeys = new Set(result.system.map(v => v.key))
+      const userKeys = new Set(result.user.map(v => v.key))
+      
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined && !systemKeys.has(key) && !userKeys.has(key)) {
+          result.process.push({
+            key,
+            value,
+            scope: 'process'
+          })
+        }
+      }
+      console.log('[EnvManager] 进程变量:', result.process.length, '个')
+
+      // 排序
+      result.system.sort((a, b) => a.key.localeCompare(b.key))
+      result.user.sort((a, b) => a.key.localeCompare(b.key))
+      result.process.sort((a, b) => a.key.localeCompare(b.key))
+
+    } catch (error) {
+      console.error('[EnvManager] 获取 Windows 环境变量失败:', error)
+    }
+
+    return result
+  }
+
+  // 设置 Windows 环境变量
+  setWindowsEnvVariable(key: string, value: string, scope: 'system' | 'user'): boolean {
+    if (process.platform !== 'win32') {
+      console.error('[EnvManager] 非 Windows 平台,无法设置环境变量')
+      return false
+    }
+
+    try {
+      const { execSync } = require('child_process')
+      const target = scope === 'system' ? 'Machine' : 'User'
+      
+      // 转义特殊字符
+      const escapedValue = value.replace(/"/g, '`"').replace(/\$/g, '`$')
+      
+      const cmd = `powershell -Command "[Environment]::SetEnvironmentVariable('${key}', '${escapedValue}', '${target}')"`
+      
+      console.log(`[EnvManager] 设置环境变量: ${key}=${value} (${scope})`)
+      execSync(cmd, { encoding: 'utf-8' })
+      
+      // 广播环境变量更改消息(Windows)
+      this.broadcastEnvironmentChange()
+      
+      return true
+    } catch (error) {
+      console.error('[EnvManager] 设置环境变量失败:', error)
+      return false
+    }
+  }
+
+  // 删除 Windows 环境变量
+  deleteWindowsEnvVariable(key: string, scope: 'system' | 'user'): boolean {
+    if (process.platform !== 'win32') {
+      console.error('[EnvManager] 非 Windows 平台,无法删除环境变量')
+      return false
+    }
+
+    try {
+      const { execSync } = require('child_process')
+      const target = scope === 'system' ? 'Machine' : 'User'
+      
+      const cmd = `powershell -Command "[Environment]::SetEnvironmentVariable('${key}', $null, '${target}')"`
+      
+      console.log(`[EnvManager] 删除环境变量: ${key} (${scope})`)
+      execSync(cmd, { encoding: 'utf-8' })
+      
+      // 广播环境变量更改消息
+      this.broadcastEnvironmentChange()
+      
+      return true
+    } catch (error) {
+      console.error('[EnvManager] 删除环境变量失败:', error)
+      return false
+    }
+  }
+
+  // 批量设置环境变量
+  setWindowsEnvVariables(variables: EnvVariable[], scope: 'system' | 'user'): { success: number, failed: number } {
+    let success = 0
+    let failed = 0
+
+    for (const variable of variables) {
+      if (this.setWindowsEnvVariable(variable.key, variable.value, scope)) {
+        success++
+      } else {
+        failed++
+      }
+    }
+
+    // 只广播一次
+    if (success > 0) {
+      this.broadcastEnvironmentChange()
+    }
+
+    return { success, failed }
+  }
+
+  // 广播环境变量更改(通知 Windows 系统)
+  private broadcastEnvironmentChange(): void {
+    if (process.platform !== 'win32') return
+
+    try {
+      const { execSync } = require('child_process')
+      // 使用 PowerShell 发送 WM_SETTINGCHANGE 消息
+      const cmd = `powershell -Command "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32 { [DllImport(\"user32.dll\", SetLastError = true, CharSet = CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult); }'; $HWND_BROADCAST = [IntPtr]0xffff; $WM_SETTINGCHANGE = 0x1a; $result = [UIntPtr]::Zero; [Win32]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)"`
+      
+      execSync(cmd, { encoding: 'utf-8', timeout: 10000 })
+      console.log('[EnvManager] 已广播环境变量更改消息')
+    } catch (error) {
+      console.warn('[EnvManager] 广播环境变量更改失败(需要重启应用生效):', error)
+    }
+  }
+
   // 导入系统环境变量到新配置
   importSystemEnvVariables(): EnvProfile {
     const systemVars = this.getSystemEnvVariables()
@@ -259,16 +430,33 @@ export class EnvManager {
     } else if (platform === 'win32') {
       // Windows
       const userProfile = process.env.USERPROFILE || homeDir
-      const psProfile = path.join(userProfile, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
-      files.push({
-        name: 'PowerShell Profile',
-        path: psProfile,
-        description: 'PowerShell 用户配置文件'
-      })
-      files.push({
-        name: '.bashrc (Git Bash)',
-        path: path.join(userProfile, '.bashrc'),
-        description: 'Git Bash 配置（若已安装）'
+      const possibleFiles = [
+        {
+          name: 'PowerShell Profile (当前用户)',
+          path: path.join(userProfile, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
+          description: 'PowerShell 用户配置文件'
+        },
+        {
+          name: 'PowerShell Profile (所有用户)',
+          path: path.join(userProfile, 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
+          description: 'PowerShell 用户配置文件 (旧版)'
+        },
+        {
+          name: '.bashrc (Git Bash)',
+          path: path.join(userProfile, '.bashrc'),
+          description: 'Git Bash 配置（若已安装）'
+        },
+        {
+          name: '.bash_profile (Git Bash)',
+          path: path.join(userProfile, '.bash_profile'),
+          description: 'Git Bash Profile（若已安装）'
+        }
+      ]
+
+      possibleFiles.forEach(file => {
+        if (fs.existsSync(file.path)) {
+          files.push(file)
+        }
       })
     }
 

@@ -12,7 +12,7 @@ import ValidationPanel from './components/ValidationPanel.vue'
 import EnvFileEditor from './components/EnvFileEditor.vue'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppShell from './components/layout/AppShell.vue'
-import type { EnvVariable, Template, Tag } from './types'
+import type { EnvVariable, EnvProfile, Template, Tag } from './types'
 
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
@@ -373,12 +373,20 @@ const handleSelectTemplate = async (payload: { template: Template; variables: En
 
 
 // 系统环境变量导入
-const handleImportAllSystemEnv = async () => {
+const handleImportAllSystemEnv = async (variables: EnvVariable[], scopeName: string) => {
   try {
-    const profile = await window.api.importSystemEnv()
+    const profile: EnvProfile = {
+      id: 'import-' + Date.now().toString(),
+      name: scopeName || '系统环境变量',
+      description: `从 Windows ${scopeName}导入`,
+      variables: variables.map(v => ({ ...v })),
+      isActive: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
     envStore.profiles.push(profile)
     await envStore.saveProfiles()
-    ElMessage.success('系统环境变量已导入为新配置')
+    ElMessage.success(`${scopeName}已导入为新配置 (共 ${variables.length} 个变量)`)
   } catch (error) {
     ElMessage.error('导入失败')
   }
@@ -646,7 +654,6 @@ const handleCommand = (action: string, payload?: any) => {
     
     <SystemEnvDialog
       v-model:visible="showSystemEnvDialog"
-      :variables="systemEnvVariables"
       @import-all="handleImportAllSystemEnv"
       @import-single="handleImportSingleSystemEnv"
     />

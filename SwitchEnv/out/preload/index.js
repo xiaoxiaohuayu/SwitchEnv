@@ -10,16 +10,7 @@ const api = {
   showSaveDialog: (defaultPath) => electron.ipcRenderer.invoke("show-save-dialog", defaultPath),
   showOpenDialog: (filters) => electron.ipcRenderer.invoke("show-open-dialog", filters),
   getSystemEnv: () => electron.ipcRenderer.invoke("get-system-env"),
-  getWindowsEnv: () => electron.ipcRenderer.invoke("get-windows-env"),
-  importSystemEnv: () => electron.ipcRenderer.invoke("import-system-env"),
-  getEnvFilePath: () => electron.ipcRenderer.invoke("get-env-file-path"),
-  applyProfileToFile: (filePath, profile) => electron.ipcRenderer.invoke("apply-profile-to-file", filePath, profile),
-  updateTrayState: (state) => electron.ipcRenderer.invoke("update-tray-state", state),
-  // 环境配置文件相关
-  getEnvConfigFiles: () => electron.ipcRenderer.invoke("get-env-config-files"),
-  readEnvConfigFile: (filePath) => electron.ipcRenderer.invoke("read-env-config-file", filePath),
-  writeEnvConfigFile: (filePath, content) => electron.ipcRenderer.invoke("write-env-config-file", filePath, content),
-  parseEnvFromConfig: (content) => electron.ipcRenderer.invoke("parse-env-from-config", content)
+  importSystemEnv: () => electron.ipcRenderer.invoke("import-system-env")
 };
 if (process.contextIsolated) {
   try {

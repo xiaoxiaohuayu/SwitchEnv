@@ -3,6 +3,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 interface EnvVariable {
   key: string
   value: string
+  scope?: 'system' | 'user' | 'process'
 }
 
 interface EnvProfile {
@@ -26,6 +27,10 @@ interface IEnvAPI {
   showSaveDialog: (defaultPath: string) => Promise<string | null>
   showOpenDialog: (filters: any[]) => Promise<string | null>
   getSystemEnv: () => Promise<EnvVariable[]>
+  getWindowsEnv: () => Promise<{ system: EnvVariable[], user: EnvVariable[], process: EnvVariable[] }>
+  setWindowsEnv: (key: string, value: string, scope: 'system' | 'user') => Promise<boolean>
+  deleteWindowsEnv: (key: string, scope: 'system' | 'user') => Promise<boolean>
+  setWindowsEnvBatch: (variables: EnvVariable[], scope: 'system' | 'user') => Promise<{ success: number, failed: number }>
   importSystemEnv: () => Promise<EnvProfile>
   getEnvFilePath: () => Promise<string>
   applyProfileToFile: (filePath: string, profile: EnvProfile) => Promise<boolean>

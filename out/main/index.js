@@ -185,6 +185,68 @@ class EnvManager {
     console.log("[EnvManager] 提取了", variables.length, "个有效环境变量");
     return variables.sort((a, b) => a.key.localeCompare(b.key));
   }
+  // 获取 Windows 环境变量(区分系统和用户)
+  getWindowsEnvVariables() {
+    const result = {
+      system: [],
+      user: [],
+      process: []
+    };
+    if (process.platform !== "win32") {
+      console.log("[EnvManager] 非 Windows 平台,无法区分系统和用户变量");
+      return result;
+    }
+    try {
+      const { execSync } = require("child_process");
+      console.log("[EnvManager] 正在读取系统环境变量...");
+      const systemEnvCmd = `powershell -Command "[Environment]::GetEnvironmentVariables('Machine') | ConvertTo-Json"`;
+      const systemEnvOutput = execSync(systemEnvCmd, { encoding: "utf-8" });
+      const systemEnv = JSON.parse(systemEnvOutput);
+      for (const [key, value] of Object.entries(systemEnv)) {
+        if (value !== void 0 && value !== null) {
+          result.system.push({
+            key,
+            value: String(value),
+            scope: "system"
+          });
+        }
+      }
+      console.log("[EnvManager] 系统变量:", result.system.length, "个");
+      console.log("[EnvManager] 正在读取用户环境变量...");
+      const userEnvCmd = `powershell -Command "[Environment]::GetEnvironmentVariables('User') | ConvertTo-Json"`;
+      const userEnvOutput = execSync(userEnvCmd, { encoding: "utf-8" });
+      const userEnv = JSON.parse(userEnvOutput);
+      for (const [key, value] of Object.entries(userEnv)) {
+        if (value !== void 0 && value !== null) {
+          result.user.push({
+            key,
+            value: String(value),
+            scope: "user"
+          });
+        }
+      }
+      console.log("[EnvManager] 用户变量:", result.user.length, "个");
+      console.log("[EnvManager] 正在读取进程环境变量...");
+      const systemKeys = new Set(result.system.map((v) => v.key));
+      const userKeys = new Set(result.user.map((v) => v.key));
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== void 0 && !systemKeys.has(key) && !userKeys.has(key)) {
+          result.process.push({
+            key,
+            value,
+            scope: "process"
+          });
+        }
+      }
+      console.log("[EnvManager] 进程变量:", result.process.length, "个");
+      result.system.sort((a, b) => a.key.localeCompare(b.key));
+      result.user.sort((a, b) => a.key.localeCompare(b.key));
+      result.process.sort((a, b) => a.key.localeCompare(b.key));
+    } catch (error) {
+      console.error("[EnvManager] 获取 Windows 环境变量失败:", error);
+    }
+    return result;
+  }
   // 导入系统环境变量到新配置
   importSystemEnvVariables() {
     const systemVars = this.getSystemEnvVariables();
@@ -223,16 +285,32 @@ class EnvManager {
       });
     } else if (platform === "win32") {
       const userProfile = process.env.USERPROFILE || homeDir;
-      const psProfile = path__namespace.join(userProfile, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1");
-      files.push({
-        name: "PowerShell Profile",
-        path: psProfile,
-        description: "PowerShell 用户配置文件"
-      });
-      files.push({
-        name: ".bashrc (Git Bash)",
-        path: path__namespace.join(userProfile, ".bashrc"),
-        description: "Git Bash 配置（若已安装）"
+      const possibleFiles = [
+        {
+          name: "PowerShell Profile (当前用户)",
+          path: path__namespace.join(userProfile, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+          description: "PowerShell 用户配置文件"
+        },
+        {
+          name: "PowerShell Profile (所有用户)",
+          path: path__namespace.join(userProfile, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+          description: "PowerShell 用户配置文件 (旧版)"
+        },
+        {
+          name: ".bashrc (Git Bash)",
+          path: path__namespace.join(userProfile, ".bashrc"),
+          description: "Git Bash 配置（若已安装）"
+        },
+        {
+          name: ".bash_profile (Git Bash)",
+          path: path__namespace.join(userProfile, ".bash_profile"),
+          description: "Git Bash Profile（若已安装）"
+        }
+      ];
+      possibleFiles.forEach((file) => {
+        if (fs__namespace.existsSync(file.path)) {
+          files.push(file);
+        }
       });
     }
     return files;
@@ -440,6 +518,65 @@ function createWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const contextMenuTemplate = [];
+    if (params.isEditable) {
+      contextMenuTemplate.push(
+        { role: "undo", label: "撤销" },
+        { role: "redo", label: "重做" },
+        { type: "separator" },
+        { role: "cut", label: "剪切" },
+        { role: "copy", label: "复制" },
+        { role: "paste", label: "粘贴" },
+        { role: "delete", label: "删除" },
+        { type: "separator" },
+        { role: "selectAll", label: "全选" }
+      );
+    } else if (params.selectionText) {
+      contextMenuTemplate.push(
+        { role: "copy", label: "复制" }
+      );
+    }
+    if (contextMenuTemplate.length > 0) {
+      contextMenuTemplate.push({ type: "separator" });
+    }
+    contextMenuTemplate.push(
+      {
+        label: "刷新",
+        accelerator: "CommandOrControl+R",
+        click: () => {
+          mainWindow?.webContents.reload();
+        }
+      },
+      {
+        label: "强制重载",
+        accelerator: "CommandOrControl+Shift+R",
+        click: () => {
+          mainWindow?.webContents.reloadIgnoringCache();
+        }
+      }
+    );
+    if (utils.is.dev) {
+      contextMenuTemplate.push(
+        { type: "separator" },
+        {
+          label: "开发者工具",
+          accelerator: "F12",
+          click: () => {
+            mainWindow?.webContents.toggleDevTools();
+          }
+        },
+        {
+          label: "检查元素",
+          click: () => {
+            mainWindow?.webContents.inspectElement(params.x, params.y);
+          }
+        }
+      );
+    }
+    const contextMenu = electron.Menu.buildFromTemplate(contextMenuTemplate);
+    contextMenu.popup();
+  });
   if (utils.is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
@@ -498,6 +635,9 @@ electron.app.whenReady().then(() => {
   });
   electron.ipcMain.handle("get-system-env", async () => {
     return envManager.getSystemEnvVariables();
+  });
+  electron.ipcMain.handle("get-windows-env", async () => {
+    return envManager.getWindowsEnvVariables();
   });
   electron.ipcMain.handle("import-system-env", async () => {
     return envManager.importSystemEnvVariables();

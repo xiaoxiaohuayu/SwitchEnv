@@ -4,6 +4,7 @@ export interface EnvVariable {
   value: string
   required?: boolean  // 是否必填
   description?: string  // 变量描述
+  scope?: 'system' | 'user' | 'process' // Windows: 系统变量 | 用户变量 | 进程变量
 }
 
 // 标签接口
@@ -90,6 +91,10 @@ export interface IEnvAPI {
   
   // 系统环境变量
   getSystemEnv: () => Promise<EnvVariable[]>
+  getWindowsEnv: () => Promise<{ system: EnvVariable[], user: EnvVariable[], process: EnvVariable[] }>
+  setWindowsEnv: (key: string, value: string, scope: 'system' | 'user') => Promise<boolean>
+  deleteWindowsEnv: (key: string, scope: 'system' | 'user') => Promise<boolean>
+  setWindowsEnvBatch: (variables: EnvVariable[], scope: 'system' | 'user') => Promise<{ success: number, failed: number }>
   importSystemEnv: () => Promise<EnvProfile>
   getEnvFilePath: () => Promise<string>
   applyProfileToFile: (filePath: string, profile: EnvProfile) => Promise<boolean>
